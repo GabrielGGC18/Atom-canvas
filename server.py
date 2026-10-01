@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,10 +19,19 @@ LAYOUT = BASE / "layout.json"
 WORKSPACES = BASE / "workspaces"
 HOST, PORT = "127.0.0.1", int(os.environ.get("ATOM_CANVAS_PORT", 8765))
 TOKEN = os.environ.get("ATOM_CANVAS_TOKEN") or secrets.token_urlsafe(16)
+
+# Cada terminal mantém uma thread bloqueada em pty.read(); o executor padrão do
+# asyncio (min(32, cpus+4) threads) travaria novos shells com muitos terminais.
+PTY_READERS = ThreadPoolExecutor(max_workers=int(os.environ.get("ATOM_MAX_TERMINALS", 128)), thread_name_prefix="pty")
+
+
 def _default_shell():
-    if os.name != "nt":
-        return os.environ.get("SHELL", "/bin/bash")
     import shutil
+    if os.name != "nt":
+        env_shell = os.environ.get("SHELL")
+        if env_shell and os.path.exists(env_shell):
+            return env_shell
+        return shutil.which("bash") or shutil.which("zsh") or "/bin/sh"
     for cand in ("pwsh.exe", "powershell.exe"):
         found = shutil.which(cand)
         if found:
@@ -63,7 +73,8 @@ class Pty:
             self.proc = PtyProcess.spawn(SHELL, cwd=cwd, dimensions=(rows, cols))
         else:
             import ptyprocess
-            self.proc = ptyprocess.PtyProcessUnicode.spawn([SHELL], cwd=cwd, dimensions=(rows, cols))
+            env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
+            self.proc = ptyprocess.PtyProcessUnicode.spawn([SHELL], cwd=cwd, env=env, dimensions=(rows, cols))
 
     def read(self):
         return self.proc.read(4096)
@@ -138,7 +149,7 @@ async def ws_term(request):
             while s.pty.alive():
                 data = ""
                 try:
-                    data = await loop.run_in_executor(None, s.pty.read)
+                    data = await loop.run_in_executor(PTY_READERS, s.pty.read)
                 except Exception:
                     break
                 if not data:
@@ -229,7 +240,16 @@ def create_app():
     app.router.add_put("/api/layout", put_layout)
     app.router.add_get("/api/workspaces", list_workspaces)
     app.router.add_static("/static", STATIC)
+    app.on_shutdown.append(_kill_sessions)
     return app
+
+
+async def _kill_sessions(app):
+    """Encerra todos os shells ao parar o servidor (libera threads de leitura)."""
+    for s in list(SESSIONS.values()):
+        s.pty.kill()
+    SESSIONS.clear()
+    PTY_READERS.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

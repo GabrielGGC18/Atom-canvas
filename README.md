@@ -20,31 +20,52 @@ Canvas infinito local com **terminais reais**, notas e janelas de Markdown, imag
 ## Requisitos
 
 - Python 3.10+
-- Windows, Linux ou macOS
+- **Windows 10/11** (PowerShell via ConPTY/pywinpty) ou **Linux / macOS** (bash/zsh via ptyprocess)
+- Navegador moderno (Chrome, Edge, Firefox)
 
-## Instalação
+Documentação técnica completa: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) · versão visual [`docs/arquitetura.html`](docs/arquitetura.html).
+
+## Instalação e uso
+
+### Linux / macOS
 
 ```bash
-git clone https://github.com/<seu-usuario>/atom-canvas.git
-cd atom-canvas
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux/macOS
-source .venv/bin/activate
-
-pip install -r requirements.txt
+git clone https://github.com/GabrielGGC18/Atom-canvas.git
+cd Atom-canvas
+chmod +x iniciar.sh      # só se o bit de execução se perder
+./iniciar.sh             # cria .venv, instala dependências e abre o navegador
 ```
 
-## Uso
+Pré-requisitos no Debian/Ubuntu: `sudo apt install python3 python3-venv`.
+
+Manual:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 python server.py --open
 ```
 
-Abre `http://127.0.0.1:8765/?token=...` no navegador. O token é gerado a cada execução e impresso no terminal.
+O shell aberto é o `$SHELL` do usuário (fallback: `bash` → `zsh` → `/bin/sh`), com `TERM=xterm-256color`.
 
-No Windows também dá para dar duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview).
+**Modo desktop no Linux (opcional):** `./iniciar.sh --desktop`. Requer GTK/WebKit do sistema:
+`sudo apt install python3-gi gir1.2-webkit2-4.1` (ou equivalente da sua distro).
+
+### Windows
+
+Duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview). Manual:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python server.py --open
+```
+
+### Acesso
+
+O servidor imprime `http://127.0.0.1:8765/?token=...` e abre o navegador (`--open`). O token muda a cada execução. `Ctrl+C` para o servidor e encerra todos os shells.
 
 ### Variáveis de ambiente
 
@@ -53,6 +74,7 @@ No Windows também dá para dar duplo clique em `iniciar.bat` (navegador) ou `in
 | `ATOM_CANVAS_PORT`  | `8765`                              | Porta do servidor               |
 | `ATOM_CANVAS_TOKEN` | aleatório a cada execução           | Token fixo de acesso            |
 | `ATOM_SHELL`        | `pwsh`/`powershell` (Win), `$SHELL` | Shell aberto nos terminais      |
+| `ATOM_MAX_TERMINALS`| `128`                               | Máx. de terminais simultâneos   |
 
 ## Atalhos
 
@@ -74,6 +96,10 @@ No Windows também dá para dar duplo clique em `iniciar.bat` (navegador) ou `in
 ```
 server.py            backend aiohttp: WebSocket de terminal, API de layout/workspaces
 desktop.py           launcher desktop opcional (pywebview)
+iniciar.sh           launcher Linux/macOS (cria .venv automaticamente)
+iniciar.bat          launcher Windows (navegador)
+iniciar-desktop.bat  launcher Windows (desktop)
+docs/                documentação de arquitetura (MD + HTML)
 static/index.html    UI
 static/app.js        canvas, janelas, terminais
 static/style.css     tema

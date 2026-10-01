@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATOM Canvas — Arquitetura</title>
+<style>
+:root {
+  --bg: #08090d; --panel: #11131b; --panel2: #161923; --border: #242936; --border-hi: #343b4d;
+  --text: #e6e9f2; --muted: #8b93a7; --accent: #7c5cff; --accent2: #22d3ee;
+  --grad: linear-gradient(135deg, #7c5cff, #22d3ee); --ok: #3ddc97; --warn: #facc15; --danger: #ff5f6d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.65 "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.2px); background-size: 24px 24px; }
+a { color: var(--accent2); text-decoration: none; } a:hover { text-decoration: underline; }
+code, pre, kbd { font-family: "Cascadia Code", Consolas, ui-monospace, monospace; }
+code { background: #1a1e2a; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: .88em; }
+pre { background: #0b0d13; border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; overflow: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; border: 0; padding: 0; }
+kbd { background: #1d2130; border: 1px solid var(--border-hi); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+
+/* layout */
+.side { position: fixed; top: 0; left: 0; bottom: 0; width: 270px; padding: 26px 18px; overflow: auto;
+  background: rgba(14,16,22,.92); backdrop-filter: blur(12px); border-right: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+.brand b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.logo { width: 22px; height: 22px; border-radius: 50%; background: var(--grad); box-shadow: 0 0 16px rgba(124,92,255,.7); position: relative; }
+.logo::after { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg); }
+.side small { color: var(--muted); display: block; margin-bottom: 20px; }
+.side nav a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; }
+.side nav a:hover, .side nav a.on { background: rgba(124,92,255,.15); color: var(--text); text-decoration: none; }
+main { margin-left: 270px; padding: 40px 56px 120px; max-width: 1180px; }
+@media (max-width: 900px) { .side { display: none; } main { margin-left: 0; padding: 24px 18px; } }
+
+/* hero */
+.hero { padding: 36px 36px 30px; border-radius: 20px; border: 1px solid var(--border); margin-bottom: 40px;
+  background: radial-gradient(ellipse at 0% 0%, rgba(124,92,255,.25), transparent 55%), radial-gradient(ellipse at 100% 100%, rgba(34,211,238,.18), transparent 55%), var(--panel); }
+.hero h1 { margin: 0 0 8px; font-size: 38px; line-height: 1.15; }
+.hero h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { color: var(--muted); margin: 0 0 18px; max-width: 760px; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font-size: 12px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border-hi); background: rgba(255,255,255,.03); }
+.pill.win { border-color: rgba(96,165,250,.5); } .pill.lin { border-color: rgba(61,220,151,.5); }
+
+/* sections */
+section { margin: 0 0 56px; }
+h2 { font-size: 26px; margin: 0 0 14px; display: flex; align-items: center; gap: 12px; }
+h2 .n { font-size: 13px; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--grad); color: #fff; flex: none; }
+h3 { font-size: 18px; margin: 28px 0 10px; color: #cfd5e6; }
+p { margin: 8px 0 12px; }
+.muted { color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+tr:last-child td { border-bottom: 0; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 14px 0 20px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.card h4 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.card p { margin: 0; color: var(--muted); font-size: 14px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+
+.callout { border-left: 3px solid var(--accent); background: rgba(124,92,255,.08); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; }
+.callout.warn { border-color: var(--warn); background: rgba(250,204,21,.07); }
+.callout.danger { border-color: var(--danger); background: rgba(255,95,109,.08); }
+
+/* diagram */
+.diagram { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin: 16px 0 22px; overflow: auto; }
+.diagram svg { width: 100%; min-width: 820px; height: auto; display: block; }
+.diagram text { font-family: "Segoe UI", system-ui, sans-serif; fill: #e6e9f2; }
+.diagram .sub { fill: #8b93a7; font-size: 11px; }
+
+/* flows */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 18px; }
+.step { background: var(--panel2); border: 1px solid var(--border-hi); border-radius: 10px; padding: 7px 12px; font-size: 13px; }
+.step.a { border-color: rgba(124,92,255,.6); } .step.b { border-color: rgba(34,211,238,.6); } .step.c { border-color: rgba(61,220,151,.6); }
+.arrow { color: var(--muted); }
+
+/* tree */
+.tree { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; background: #0b0d13; border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; line-height: 1.7; }
+.tree .d { color: var(--accent2); } .tree .f { color: var(--text); } .tree .c { color: var(--muted); } .tree .g { color: #6b7280; font-style: italic; }
+
+.layers { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.layer { display: flex; justify-content: space-between; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 14px; }
+.layer b { font-family: Consolas, monospace; color: var(--accent2); }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 18px; }
+</style>
+</head>
+<body>
+
+<aside class="side">
+  <div class="brand"><span class="logo"></span>ATOM <b>Canvas</b></div>
+  <small>Documentação de arquitetura</small>
+  <nav id="toc">
+    <a href="#visao">1. Visão geral</a>
+    <a href="#stack">2. Stack e dependências</a>
+    <a href="#arquivos">3. Estrutura de arquivos</a>
+    <a href="#componentes">4. Diagrama de componentes</a>
+    <a href="#backend">5. Backend — server.py</a>
+    <a href="#desktop">6. Launcher desktop</a>
+    <a href="#frontend">7. Frontend — static/</a>
+    <a href="#protocolos">8. Protocolos e API</a>
+    <a href="#dados">9. Modelo de dados</a>
+    <a href="#fluxos">10. Fluxos principais</a>
+    <a href="#coords">11. Coordenadas do canvas</a>
+    <a href="#camadas">12. Camadas (z-order)</a>
+    <a href="#seguranca">13. Segurança</a>
+    <a href="#config">14. Configuração</a>
+    <a href="#limites">15. Limitações conhecidas</a>
+    <a href="#plataformas">16. Windows e Linux</a>
+    <a href="#estender">17. Como estender</a>
+  </nav>
+</aside>
+
+<main>
+
+<div class="hero">
+  <h1>Arquitetura do <span>ATOM Canvas</span></h1>
+  <p>Canvas infinito local com terminais reais, notas e previews. Backend Python assíncrono fazendo ponte WebSocket ↔ PTY; frontend HTML/CSS/JS puro, sem build e sem CDN.</p>
+  <div class="pills">
+    <span class="pill">Python 3.10+</span><span class="pill">aiohttp</span><span class="pill">xterm.js</span>
+    <span class="pill">WebSocket</span><span class="pill">JS puro</span>
+    <span class="pill win">Windows · pywinpty</span><span class="pill lin">Linux/macOS · ptyprocess</span>
+    <span class="pill">127.0.0.1 + token</span>
+  </div>
+</div>
+
+<!-- 1 -->
+<section id="visao">
+  <h2><span class="n">1</span>Visão geral</h2>
+  <p>Aplicação <b>local e de usuário único</b>. O navegador mostra um plano infinito onde o usuário posiciona janelas livres, com pan, zoom e persistência automática.</p>
+  <div class="grid">
+    <div class="card"><h4><span class="dot" style="background:#7c5cff"></span>Terminal <code>term</code></h4><p>Shell real (PowerShell no Windows, bash/zsh no Linux) via PTY, renderizado com xterm.js. Sessão sobrevive ao reload.</p></div>
+    <div class="card"><h4><span class="dot" style="background:#facc15"></span>Nota <code>note</code></h4><p>Texto livre em <code>&lt;textarea&gt;</code>, salvo no layout.</p></div>
+    <div class="card"><h4><span class="dot" style="background:#22d3ee"></span>Preview <code>preview</code></h4><p>Modos <code>markdown</code> (editor + render), <code>image</code> e <code>browser</code> (iframe com sandbox).</p></div>
+  </div>
+  <h3>Princípios</h3>
+  <table>
+    <tr><th>Princípio</th><th>Como se aplica</th></tr>
+    <tr><td>Sem build</td><td>Arquivos estáticos servidos direto; bibliotecas em <code>static/vendor/</code> (funciona offline).</td></tr>
+    <tr><td>Backend mínimo</td><td>Um processo aiohttp: servir arquivos, ponte WS ↔ PTY, ler/gravar JSON.</td></tr>
+    <tr><td>Estado no cliente</td><td>O navegador é dono do estado do canvas; o servidor só persiste o JSON recebido.</td></tr>
+    <tr><td>Local-first e privado</td><td>Bind em <code>127.0.0.1</code>, token obrigatório, checagem de <code>Origin</code>.</td></tr>
+    <tr><td>Multiplataforma</td><td>Só a classe <code>Pty</code> muda entre Windows e Linux/macOS; o resto é idêntico.</td></tr>
+  </table>
+</section>
+
+<!-- 2 -->
+<section id="stack">
+  <h2><span class="n">2</span>Stack e dependências</h2>
+  <h3>Backend</h3>
+  <table>
+    <tr><th>Pacote</th><th>Plataforma</th><th>Uso</th></tr>
+    <tr><td><code>aiohttp</code></td><td>todas</td><td>Servidor HTTP + WebSocket assíncrono</td></tr>
+    <tr><td><code>pywinpty</code></td><td>Windows</td><td>Pseudo-terminal ConPTY — <code>winpty.PtyProcess</code></td></tr>
+    <tr><td><code>ptyprocess</code></td><td>Linux / macOS</td><td>Pseudo-terminal POSIX — <code>PtyProcessUnicode</code></td></tr>
+    <tr><td><code>pywebview</code></td><td>opcional</td><td>Janela desktop (<code>desktop.py</code>). Windows via requirements; Linux via <code>./iniciar.sh --desktop</code></td></tr>
+  </table>
+  <h3>Frontend</h3>
+  <table>
+    <tr><th>Biblioteca</th><th>Arquivo</th><th>Uso</th></tr>
+    <tr><td>xterm.js 5</td><td><code>vendor/xterm.js</code>, <code>xterm.css</code></td><td>Emulador de terminal</td></tr>
+    <tr><td>addon-fit</td><td><code>vendor/xterm-addon-fit.js</code></td><td>Ajusta colunas/linhas ao container</td></tr>
+    <tr><td>addon-search</td><td><code>vendor/xterm-addon-search.js</code></td><td>Busca no buffer</td></tr>
+    <tr><td>addon-web-links</td><td><code>vendor/xterm-addon-web-links.js</code></td><td>URLs clicáveis</td></tr>
+  </table>
+  <p class="muted">APIs do navegador: WebSocket, Fetch, Pointer Events, ResizeObserver, Fullscreen API, Canvas 2D, SVG, localStorage, <code>crypto.randomUUID</code>, Clipboard.</p>
+</section>
+
+<!-- 3 -->
+<section id="arquivos">
+  <h2><span class="n">3</span>Estrutura de arquivos</h2>
+<div class="tree"><span class="d">atom-canvas/</span>
+├── <span class="f">server.py</span>              <span class="c">Backend: HTTP, WebSocket/PTY, layout, workspaces</span>
+├── <span class="f">desktop.py</span>             <span class="c">Launcher desktop (pywebview)</span>
+├── <span class="f">iniciar.sh</span>             <span class="c">Linux/macOS: cria .venv, instala deps, abre navegador</span>
+├── <span class="f">iniciar.bat</span>            <span class="c">Windows: navegador</span>
+├── <span class="f">iniciar-desktop.bat</span>    <span class="c">Windows: desktop</span>
+├── <span class="f">requirements.txt</span>       <span class="c">Dependências com markers por plataforma</span>
+├── <span class="f">README.md · TASKS.md · LICENSE</span>
+├── <span class="f">.gitignore · .gitattributes</span>
+├── <span class="d">docs/</span>
+│   ├── <span class="f">ARQUITETURA.md</span>
+│   └── <span class="f">arquitetura.html</span>   <span class="c">este documento</span>
+├── <span class="d">static/</span>
+│   ├── <span class="f">index.html</span>         <span class="c">esqueleto da UI</span>
+│   ├── <span class="f">app.js</span>             <span class="c">toda a lógica do frontend</span>
+│   ├── <span class="f">style.css</span>          <span class="c">tema (variáveis CSS)</span>
+│   └── <span class="d">vendor/</span>            <span class="c">xterm.js + addons + licença</span>
+│
+├── <span class="g">layout.json</span>            <span class="c">gerado · fora do git</span>
+└── <span class="g">workspaces/*.json</span>      <span class="c">gerado · fora do git</span></div>
+</section>
+
+<!-- 4 -->
+<section id="componentes">
+  <h2><span class="n">4</span>Diagrama de componentes</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9z" fill="#22d3ee"/></marker>
+        <linearGradient id="g1" x1="0" x2="1"><stop offset="0" stop-color="#7c5cff" stop-opacity=".25"/><stop offset="1" stop-color="#22d3ee" stop-opacity=".12"/></linearGradient>
+      </defs>
+      <!-- browser -->
+      <rect x="10" y="10" width="980" height="210" rx="16" fill="url(#g1)" stroke="#343b4d"/>
+      <text x="30" y="38" font-size="15" font-weight="700">Navegador / janela pywebview</text>
+      <text x="30" y="56" class="sub">index.html · style.css · vendor/xterm.js · app.js</text>
+      <g font-size="13">
+        <rect x="30" y="76" width="170" height="74" rx="10" fill="#161923" stroke="#343b4d"/><text x="44" y="100" font-weight="600">View</text><text x="44" y="120" class="sub">pan · zoom · fitAll</text><text x="44" y="136" class="sub">applyView / toWorld</text>
+        <rect x="215" y="76" width="170" height="74" rx="10" fill="#161923" stroke="#7c5cff"/><text x="229" y="100" font-weight="600">Nós (Map)</text><text x="229" y="120" class="sub">term · note · preview</text><text x="229" y="136" class="sub">addNode / place / setMax</text>
+        <rect x="400" y="76" width="170" height="74" rx="10" fill="#161923" stroke="#343b4d"/><text x="414" y="100" font-weight="600">Conexões + Minimap</text><text x="414" y="120" class="sub">SVG Bézier</text><text x="414" y="136" class="sub">Canvas 2D</text>
+        <rect x="585" y="76" width="170" height="74" rx="10" fill="#161923" stroke="#343b4d"/><text x="599" y="100" font-weight="600">Workspaces</text><text x="599" y="120" class="sub">loadWorkspace</text><text x="599" y="136" class="sub">clearCanvas</text>
+        <rect x="770" y="76" width="200" height="74" rx="10" fill="#161923" stroke="#22d3ee"/><text x="784" y="100" font-weight="600">Persistência</text><text x="784" y="120" class="sub">save() debounce 400 ms</text><text x="784" y="136" class="sub">fetch PUT /api/layout</text>
+        <rect x="215" y="162" width="170" height="44" rx="10" fill="#0a0b10" stroke="#7c5cff" stroke-dasharray="4 3"/><text x="229" y="189" class="sub">xterm.js + 1 WebSocket / terminal</text>
+      </g>
+      <!-- arrows -->
+      <line x1="300" y1="206" x2="300" y2="300" stroke="#22d3ee" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="310" y="258" class="sub">ws://127.0.0.1:8765/ws/term?token&amp;sid&amp;cwd&amp;cols&amp;rows</text>
+      <line x1="870" y1="150" x2="870" y2="300" stroke="#22d3ee" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="760" y="258" class="sub">/api/*?token=…</text>
+      <!-- server -->
+      <rect x="10" y="304" width="980" height="170" rx="16" fill="#11131b" stroke="#343b4d"/>
+      <text x="30" y="332" font-size="15" font-weight="700">server.py — aiohttp em 127.0.0.1</text>
+      <g font-size="13">
+        <rect x="30" y="346" width="500" height="112" rx="10" fill="#161923" stroke="#7c5cff"/>
+        <text x="44" y="370" font-weight="600">ws_term</text>
+        <text x="44" y="390" class="sub">check_auth (token + Origin) → SESSIONS[sid] → Session</text>
+        <text x="44" y="408" class="sub">Pty: pywinpty (Windows) | ptyprocess (Linux/macOS)</text>
+        <text x="44" y="426" class="sub">pump(): pty.read em PTY_READERS (thread) → output (24 KB) → WS</text>
+        <text x="44" y="444" class="sub">on_shutdown: _kill_sessions encerra todos os shells</text>
+        <rect x="550" y="346" width="420" height="112" rx="10" fill="#161923" stroke="#22d3ee"/>
+        <text x="564" y="370" font-weight="600">API de layout</text>
+        <text x="564" y="390" class="sub">get_layout / put_layout / list_workspaces</text>
+        <text x="564" y="408" class="sub">_workspace_name (sanitiza) · _layout_path</text>
+        <text x="564" y="426" class="sub">index · /static/*</text>
+      </g>
+      <line x1="280" y1="458" x2="280" y2="500" stroke="#22d3ee" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="760" y1="458" x2="760" y2="500" stroke="#22d3ee" stroke-width="2" marker-end="url(#ar)"/>
+      <rect x="120" y="504" width="320" height="44" rx="10" fill="#0a0b10" stroke="#3ddc97"/>
+      <text x="136" y="531" font-size="13">Shell por sessão: powershell / bash / zsh</text>
+      <rect x="600" y="504" width="320" height="44" rx="10" fill="#0a0b10" stroke="#facc15"/>
+      <text x="616" y="531" font-size="13">layout.json · workspaces/*.json</text>
+    </svg>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="backend">
+  <h2><span class="n">5</span>Backend — <code>server.py</code></h2>
+  <h3>5.1 Constantes</h3>
+  <table>
+    <tr><th>Nome</th><th>Valor</th></tr>
+    <tr><td><code>HOST</code></td><td><code>127.0.0.1</code> (fixo)</td></tr>
+    <tr><td><code>PORT</code></td><td><code>ATOM_CANVAS_PORT</code> ou 8765</td></tr>
+    <tr><td><code>TOKEN</code></td><td><code>ATOM_CANVAS_TOKEN</code> ou <code>secrets.token_urlsafe(16)</code> por execução</td></tr>
+    <tr><td><code>SHELL</code></td><td><code>ATOM_SHELL</code> ou <code>_default_shell()</code></td></tr>
+    <tr><td><code>PTY_READERS</code></td><td><code>ThreadPoolExecutor</code> com <code>ATOM_MAX_TERMINALS</code> (128) threads</td></tr>
+    <tr><td><code>LAYOUT</code> / <code>WORKSPACES</code></td><td><code>layout.json</code> / <code>workspaces/</code></td></tr>
+  </table>
+  <p><b>Escolha do shell</b> — Windows: <code>pwsh.exe</code> → <code>powershell.exe</code> no PATH → caminho absoluto em <code>%SystemRoot%</code>. Linux/macOS: <code>$SHELL</code> (se existir) → <code>bash</code> → <code>zsh</code> → <code>/bin/sh</code>.</p>
+
+  <h3>5.2 Abstração <code>Pty</code></h3>
+  <table>
+    <tr><th>Método</th><th>Windows (pywinpty)</th><th>Linux/macOS (ptyprocess)</th></tr>
+    <tr><td><code>__init__</code></td><td><code>spawn(SHELL, cwd, dimensions)</code></td><td><code>spawn([SHELL], cwd, env, dimensions)</code> com <code>TERM=xterm-256color</code></td></tr>
+    <tr><td><code>read()</code></td><td colspan="2"><code>read(4096)</code> — bloqueante, roda em thread do <code>PTY_READERS</code></td></tr>
+    <tr><td><code>write(d)</code></td><td colspan="2">envia teclas</td></tr>
+    <tr><td><code>resize(c, r)</code></td><td colspan="2"><code>setwinsize(rows, cols)</code></td></tr>
+    <tr><td><code>alive()</code> / <code>kill()</code></td><td colspan="2"><code>isalive()</code> / <code>terminate(force=True)</code></td></tr>
+  </table>
+  <div class="callout">Cada terminal mantém <b>uma thread presa em <code>read()</code></b>. Por isso existe o pool dedicado <code>PTY_READERS</code>: o executor padrão do asyncio (≈ cpus+4 threads) congelaria terminais novos depois de uns 12 abertos.</div>
+
+  <h3>5.3 Sessões persistentes</h3>
+  <pre><code>@dataclass
+class Session:
+    sid: str      # = data.sessionId do frontend
+    cwd: str
+    pty: Pty
+    output: str   # últimos 24.000 caracteres (replay)
+    ws: object    # WebSocket anexado ou None
+    task: object  # asyncio.Task do pump
+    cols: int; rows: int
+
+SESSIONS: dict[str, Session]   # em memória</code></pre>
+  <div class="grid">
+    <div class="card"><h4>Shell ≠ conexão</h4><p>Fechar ou recarregar a aba desanexa o WebSocket; o shell continua rodando e bufferizando.</p></div>
+    <div class="card"><h4>Reanexar</h4><p>Mesmo <code>sid</code> → mesma sessão + replay de <code>output</code>.</p></div>
+    <div class="card"><h4>Uma conexão por sessão</h4><p>Nova conexão com o mesmo <code>sid</code> fecha a anterior.</p></div>
+    <div class="card"><h4>Encerramento</h4><p><code>on_shutdown → _kill_sessions</code>: mata todos os PTYs e libera as threads. Ctrl+C sai na hora.</p></div>
+  </div>
+
+  <h3>5.4 <code>ws_term</code> passo a passo</h3>
+  <div class="flow">
+    <span class="step a">check_auth</span><span class="arrow">→</span>
+    <span class="step">cwd válido? senão home</span><span class="arrow">→</span>
+    <span class="step">ws.prepare()</span><span class="arrow">→</span>
+    <span class="step b">SESSIONS[sid] vivo? senão cria Pty + pump</span><span class="arrow">→</span>
+    <span class="step">anexa WS, fecha anterior</span><span class="arrow">→</span>
+    <span class="step c">replay output</span><span class="arrow">→</span>
+    <span class="step">resize</span><span class="arrow">→</span>
+    <span class="step a">loop: i → write · r → resize</span><span class="arrow">→</span>
+    <span class="step">finally: desanexa (shell vive)</span>
+  </div>
+
+  <h3>5.5 Rotas</h3>
+  <table>
+    <tr><th>Rota</th><th>Método</th><th>Handler</th><th>Descrição</th></tr>
+    <tr><td><code>/</code></td><td>GET</td><td><code>index</code></td><td>index.html</td></tr>
+    <tr><td><code>/static/*</code></td><td>GET</td><td><code>add_static</code></td><td>arquivos estáticos</td></tr>
+    <tr><td><code>/ws/term</code></td><td>WS</td><td><code>ws_term</code></td><td>terminal</td></tr>
+    <tr><td><code>/api/layout</code></td><td>GET / PUT</td><td><code>get_layout</code> / <code>put_layout</code></td><td>ler / gravar layout do workspace</td></tr>
+    <tr><td><code>/api/workspaces</code></td><td>GET</td><td><code>list_workspaces</code></td><td>nomes, <code>default</code> primeiro</td></tr>
+  </table>
+</section>
+
+<!-- 6 -->
+<section id="desktop">
+  <h2><span class="n">6</span>Launcher desktop — <code>desktop.py</code></h2>
+  <div class="flow">
+    <span class="step">importa create_app, TOKEN</span><span class="arrow">→</span>
+    <span class="step b">run_app em thread daemon (handle_signals=False)</span><span class="arrow">→</span>
+    <span class="step">espera 350 ms</span><span class="arrow">→</span>
+    <span class="step a">webview.create_window 1440×900</span><span class="arrow">→</span>
+    <span class="step">fechar janela = fim do processo</span>
+  </div>
+  <p class="muted">Windows usa WebView2. Linux usa GTK + WebKit2 (<code>python3-gi gir1.2-webkit2-4.1</code>), instalado sob demanda por <code>./iniciar.sh --desktop</code>.</p>
+</section>
+
+<!-- 7 -->
+<section id="frontend">
+  <h2><span class="n">7</span>Frontend — <code>static/</code></h2>
+  <h3>7.1 <code>index.html</code></h3>
+  <table>
+    <tr><th>Elemento</th><th>Função</th></tr>
+    <tr><td><code>#toolbar</code></td><td>Marca, workspace, terminal, nota, menu "Abrir", zoom, ajustar, grade, mapa, ajuda</td></tr>
+    <tr><td><code>#viewport</code> → <code>#world</code></td><td>Área visível → plano transformado com janelas e SVG de conexões</td></tr>
+    <tr><td><code>#overlay</code></td><td>Camada da janela maximizada / tela cheia (fundo desfocado)</td></tr>
+    <tr><td><code>#minimap</code></td><td>Canvas com visão geral clicável</td></tr>
+    <tr><td><code>#status</code></td><td>Contagem de terminais, notas, conectados, zoom</td></tr>
+    <tr><td><code>#ctx</code> / <code>#help</code></td><td>Menu de contexto / modal de atalhos</td></tr>
+  </table>
+
+  <h3>7.2 Módulos de <code>app.js</code></h3>
+  <table>
+    <tr><th>Seção</th><th>Símbolos</th><th>Responsabilidade</th></tr>
+    <tr><td>Constantes</td><td><code>GRID</code>, <code>COLORS</code>, <code>SIZES</code>, <code>P</code>, <code>TERM_THEME</code></td><td>Configuração visual e ícones SVG</td></tr>
+    <tr><td>Estado</td><td><code>view</code>, <code>nodes</code>, <code>connections</code>, <code>active</code>, <code>workspace</code></td><td>Estado do canvas</td></tr>
+    <tr><td>View</td><td><code>applyView</code>, <code>toWorld</code>, <code>zoomAt</code>, <code>fitAll</code></td><td>Pan e zoom ancorado no cursor</td></tr>
+    <tr><td>Nós</td><td><code>addNode</code>, <code>dragOp</code>, <code>place</code>, <code>removeNode</code>, <code>duplicate</code></td><td>Ciclo de vida e geometria</td></tr>
+    <tr><td>Maximizar</td><td><code>setMax</code>, <code>toggleFull</code>, <code>syncOverlay</code></td><td>Move para <code>#overlay</code>, Fullscreen API</td></tr>
+    <tr><td>Terminal</td><td><code>initTerm</code>, <code>setFont</code>, <code>openClaude</code>, <code>searchTerm</code></td><td>xterm, WebSocket, resize, atalhos</td></tr>
+    <tr><td>Nota / Preview</td><td><code>initNote</code>, <code>initPreview</code>, <code>markdownToHtml</code></td><td>Texto, Markdown, imagem, iframe</td></tr>
+    <tr><td>Conexões</td><td><code>beginConnection</code>, <code>completeConnection</code>, <code>renderConnections</code></td><td>Curvas entre janelas</td></tr>
+    <tr><td>Minimap</td><td><code>renderMinimap</code></td><td>Visão geral + navegação</td></tr>
+    <tr><td>Persistência</td><td><code>save</code>, <code>updateStatus</code></td><td>PUT com debounce de 400 ms</td></tr>
+    <tr><td>Workspaces</td><td><code>loadWorkspace</code>, <code>loadWorkspaces</code>, <code>clearCanvas</code></td><td>Troca de canvas salvo</td></tr>
+    <tr><td>Interação</td><td>menu de contexto, toolbar, <code>keydown</code> em captura</td><td>Ações e atalhos</td></tr>
+    <tr><td>Boot</td><td>IIFE async</td><td>Valida token, carrega workspaces e layout</td></tr>
+  </table>
+
+  <h3>7.3 Anatomia de uma janela</h3>
+<pre><code>.node.term|.note|.preview  [.active .min .max .dead .connecting]   --c = cor
+├── header                 arrastar · duplo clique = maximizar
+│   ├── .dot               clique = próxima cor
+│   ├── .kind              ícone do tipo
+│   ├── .title             duplo clique = renomear
+│   ├── .cwd               pasta / URL resumida
+│   └── .actions           A− A+ ⟳ Claude Buscar (term) · elo · duplicar · minimizar · maximizar · tela cheia · fechar
+├── .body                  xterm | textarea | preview
+└── .rz.r .rz.b .rz.br     redimensionar</code></pre>
+
+  <h3>7.4 Sistema visual (<code>style.css</code>)</h3>
+  <div class="grid">
+    <div class="card"><h4>Tokens</h4><p><code>--bg --panel --border --text --muted --accent #7c5cff --accent2 #22d3ee --grad --radius 14px --shadow</code></p></div>
+    <div class="card"><h4>Cor por janela</h4><p>Variável <code>--c</code> em cada <code>.node</code> + <code>color-mix()</code> no header, foco e nota.</p></div>
+    <div class="card"><h4>Glass UI</h4><p>Toolbar, status e menus com <code>backdrop-filter: blur()</code>.</p></div>
+    <div class="card"><h4>Grade</h4><p>Pontos via <code>radial-gradient</code>, tamanho/posição sincronizados com pan e zoom.</p></div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="protocolos">
+  <h2><span class="n">8</span>Protocolos e API</h2>
+  <h3>WebSocket <code>/ws/term</code></h3>
+  <pre><code>ws://127.0.0.1:&lt;PORT&gt;/ws/term?token=&lt;T&gt;&amp;cols=&lt;C&gt;&amp;rows=&lt;R&gt;&amp;cwd=&lt;pasta&gt;&amp;sid=&lt;sessionId&gt;</code></pre>
+  <table>
+    <tr><th>Direção</th><th>Mensagem</th><th>Significado</th></tr>
+    <tr><td>cliente → servidor</td><td><code>{"t":"i","d":"..."}</code></td><td>Entrada de teclado</td></tr>
+    <tr><td>cliente → servidor</td><td><code>{"t":"r","c":120,"r":32}</code></td><td>Redimensionar PTY</td></tr>
+    <tr><td>servidor → cliente</td><td><code>{"t":"o","d":"..."}</code></td><td>Saída do shell (ANSI)</td></tr>
+    <tr><td>servidor → cliente</td><td><code>{"t":"exit"}</code></td><td>Shell terminou</td></tr>
+  </table>
+  <h3>HTTP</h3>
+  <pre><code>GET  /api/workspaces               → ["default", "projeto-x"]
+GET  /api/layout?workspace=&lt;n&gt;      → { view, nodes, connections }
+PUT  /api/layout?workspace=&lt;n&gt;      ← { view, nodes, connections }   → {"ok": true}
+(todas exigem ?token=…  ·  403 sem token ou com Origin estranha)</code></pre>
+</section>
+
+<!-- 9 -->
+<section id="dados">
+  <h2><span class="n">9</span>Modelo de dados e persistência</h2>
+<pre><code>{
+  "view": { "x": -120.5, "y": 40, "s": 0.85 },
+  "nodes": [{
+    "id": "uuid", "type": "term",
+    "x": 100, "y": 100, "w": 960, "h": 580,
+    "title": "Terminal", "color": "#7c5cff", "min": false,
+    "cwd": "/home/user/projeto", "fontSize": 14, "sessionId": "uuid",
+    "text": "", "url": "", "mode": "browser"
+  }],
+  "connections": [{ "id": "uuid", "from": "&lt;node id&gt;", "to": "&lt;node id&gt;" }]
+}</code></pre>
+  <table>
+    <tr><th>Dado</th><th>Onde</th><th>Vida útil</th></tr>
+    <tr><td>Layout <code>default</code></td><td><code>layout.json</code></td><td>disco</td></tr>
+    <tr><td>Outros workspaces</td><td><code>workspaces/&lt;nome&gt;.json</code></td><td>disco</td></tr>
+    <tr><td>Shell + histórico 24 KB</td><td><code>SESSIONS</code></td><td>RAM, enquanto o servidor roda</td></tr>
+    <tr><td>Grade, último workspace, última pasta</td><td><code>localStorage</code> (<code>atomSnap</code>, <code>atomWorkspace</code>, <code>atomLastCwd</code>)</td><td>navegador</td></tr>
+  </table>
+  <div class="callout">Toda mutação chama <code>save()</code>: debounce de 400 ms e <code>PUT</code> do estado completo (último estado vence). Arquivos de layout ficam <b>fora do git</b> porque contêm caminhos e textos pessoais.</div>
+</section>
+
+<!-- 10 -->
+<section id="fluxos">
+  <h2><span class="n">10</span>Fluxos principais</h2>
+  <h3>Inicialização</h3>
+  <div class="flow">
+    <span class="step a">python server.py --open</span><span class="arrow">→</span><span class="step">gera TOKEN, imprime URL</span><span class="arrow">→</span>
+    <span class="step">GET / + estáticos</span><span class="arrow">→</span><span class="step b">GET /api/layout (valida token)</span><span class="arrow">→</span>
+    <span class="step">GET /api/workspaces</span><span class="arrow">→</span><span class="step c">loadWorkspace → addNode…</span>
+  </div>
+  <h3>Digitação e saída</h3>
+  <div class="flow">
+    <span class="step">tecla</span><span class="arrow">→</span><span class="step a">xterm.onData</span><span class="arrow">→</span><span class="step">WS {"t":"i"}</span><span class="arrow">→</span><span class="step b">pty.write</span><span class="arrow">→</span><span class="step c">shell</span><span class="arrow">→</span><span class="step b">pty.read (thread)</span><span class="arrow">→</span><span class="step">output += · WS {"t":"o"}</span><span class="arrow">→</span><span class="step a">term.write</span>
+  </div>
+  <h3>Redimensionar</h3>
+  <div class="flow">
+    <span class="step">arrastar alça</span><span class="arrow">→</span><span class="step">dragOp → place()</span><span class="arrow">→</span><span class="step a">ResizeObserver (30 ms)</span><span class="arrow">→</span><span class="step">fit.fit()</span><span class="arrow">→</span><span class="step b">WS {"t":"r"} → pty.resize</span>
+  </div>
+  <h3>Recarregar a página</h3>
+  <div class="flow">
+    <span class="step">reload</span><span class="arrow">→</span><span class="step">WS fecha · shell segue vivo</span><span class="arrow">→</span><span class="step">layout traz sessionId</span><span class="arrow">→</span><span class="step b">mesmo sid → reanexa</span><span class="arrow">→</span><span class="step c">replay do histórico</span>
+  </div>
+  <h3>Maximizar / tela cheia</h3>
+  <div class="flow">
+    <span class="step">setMax(true)</span><span class="arrow">→</span><span class="step a">.node vai para #overlay (sem scale)</span><span class="arrow">→</span><span class="step">.max fixed + blur</span><span class="arrow">→</span><span class="step b">toggleFull: requestFullscreen</span><span class="arrow">→</span><span class="step">saiu? restaura</span>
+  </div>
+  <h3>Conexões e workspaces</h3>
+  <div class="flow">
+    <span class="step">elo em A</span><span class="arrow">→</span><span class="step">clique em B</span><span class="arrow">→</span><span class="step a">connections.push</span><span class="arrow">→</span><span class="step">renderConnections · save</span>
+  </div>
+  <div class="flow">
+    <span class="step">troca no select</span><span class="arrow">→</span><span class="step">clearCanvas (WS fecha)</span><span class="arrow">→</span><span class="step b">GET layout do workspace</span><span class="arrow">→</span><span class="step c">recria nós</span>
+  </div>
+</section>
+
+<!-- 11 -->
+<section id="coords">
+  <h2><span class="n">11</span>Sistema de coordenadas do canvas</h2>
+  <p><code>#world</code> recebe <code>transform: translate(view.x, view.y) scale(view.s)</code> com origem <code>0 0</code>. Geometria dos nós (<code>x, y, w, h</code>) fica em coordenadas de mundo.</p>
+<pre><code>tela → mundo:   wx = (clientX - viewport.left - view.x) / view.s
+mundo → tela:   cx = wx * view.s + view.x + viewport.left
+
+zoom ancorado no cursor (ponto sob o mouse fica parado):
+  ns     = clamp(view.s * fator, 0.15, 2.5)
+  view.x = px - (px - view.x) * (ns / view.s)
+  view.y = py - (py - view.y) * (ns / view.s)</code></pre>
+  <p>Arrastar e redimensionar dividem o delta do mouse por <code>view.s</code>. Grade ligada: <code>snapV()</code> arredonda para múltiplos de 24. <code>fitAll()</code> enquadra o retângulo envolvente com escala máxima 1.2.</p>
+</section>
+
+<!-- 12 -->
+<section id="camadas">
+  <h2><span class="n">12</span>Camadas visuais (z-order)</h2>
+  <div class="layers">
+    <div class="layer"><span>Elemento em tela cheia</span><b>top layer</b></div>
+    <div class="layer"><span>Modal de ajuda <code>#help</code></span><b>50</b></div>
+    <div class="layer"><span>Menu de contexto <code>#ctx</code></span><b>40</b></div>
+    <div class="layer"><span>Toolbar e status</span><b>30</b></div>
+    <div class="layer"><span>Minimap</span><b>29</b></div>
+    <div class="layer"><span>Overlay de janela maximizada</span><b>20</b></div>
+    <div class="layer"><span>Janelas <code>.node</code> (<code>zTop++</code> no foco)</span><b>1…n</b></div>
+    <div class="layer"><span><code>#viewport</code> → <code>#world</code> + SVG de conexões</span><b>base</b></div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section id="seguranca">
+  <h2><span class="n">13</span>Segurança</h2>
+  <div class="callout danger"><b>O ATOM Canvas expõe um shell completo pelo navegador.</b> Quem acessar a URL com token controla a máquina com as permissões do seu usuário.</div>
+  <table>
+    <tr><th>Ameaça</th><th>Defesa</th></tr>
+    <tr><td>Acesso pela rede</td><td>Bind fixo em <code>127.0.0.1</code></td></tr>
+    <tr><td>Adivinhar a URL</td><td>Token aleatório de 128 bits em HTTP e WS</td></tr>
+    <tr><td>Site malicioso abrindo WS para localhost (CSWSH)</td><td>Checagem de <code>Origin</code> (só <code>127.0.0.1</code>/<code>localhost</code> na porta)</td></tr>
+    <tr><td>Path traversal no workspace</td><td><code>_workspace_name</code>: só <code>[a-zA-Z0-9 _-]</code>, máx. 64</td></tr>
+    <tr><td>XSS via Markdown</td><td>Escape de <code>&amp; &lt; &gt; " '</code> antes da formatação</td></tr>
+    <tr><td>Dados pessoais no git</td><td><code>layout.json</code> e <code>workspaces/</code> no <code>.gitignore</code></td></tr>
+  </table>
+  <p class="muted">Nunca use <code>0.0.0.0</code>, port-forward ou túneis (ngrok etc.). Não compartilhe a URL com token.</p>
+</section>
+
+<!-- 14 -->
+<section id="config">
+  <h2><span class="n">14</span>Configuração</h2>
+  <table>
+    <tr><th>Variável</th><th>Padrão</th><th>Efeito</th></tr>
+    <tr><td><code>ATOM_CANVAS_PORT</code></td><td>8765</td><td>Porta</td></tr>
+    <tr><td><code>ATOM_CANVAS_TOKEN</code></td><td>aleatório</td><td>Token fixo</td></tr>
+    <tr><td><code>ATOM_SHELL</code></td><td>pwsh/powershell · $SHELL</td><td>Shell dos terminais</td></tr>
+    <tr><td><code>ATOM_MAX_TERMINALS</code></td><td>128</td><td>Pool de leitura (máx. terminais simultâneos)</td></tr>
+  </table>
+  <p>Argumento <code>--open</code> abre o navegador. <code>iniciar.sh --desktop</code> abre o modo desktop no Linux.</p>
+</section>
+
+<!-- 15 -->
+<section id="limites">
+  <h2><span class="n">15</span>Limitações conhecidas</h2>
+  <table>
+    <tr><th>#</th><th>Limitação</th><th>Possível melhoria</th></tr>
+    <tr><td>1</td><td>Fechar janela, reiniciar (⟳) ou trocar workspace não mata o shell no servidor (sessão órfã até o servidor parar).</td><td><code>DELETE /api/session/&lt;sid&gt;</code> chamado por <code>removeNode</code>/<code>restart</code>.</td></tr>
+    <tr><td>2</td><td>Sessões vivem só em RAM: reiniciar o servidor cria shells novos.</td><td>tmux/screen no Linux como backend opcional.</td></tr>
+    <tr><td>3</td><td>iframe com <code>allow-scripts</code> + <code>allow-same-origin</code>: se apontar para o próprio servidor, o sandbox perde efeito. Muitos sites bloqueiam iframe.</td><td>Bloquear URLs de <code>127.0.0.1:&lt;PORT&gt;</code>.</td></tr>
+    <tr><td>4</td><td>Com zoom ≠ 100% a seleção com mouse no xterm pode desalinhar.</td><td>Usar maximizar (sem scale).</td></tr>
+    <tr><td>5</td><td>Duas abas no mesmo workspace sobrescrevem o JSON uma da outra.</td><td>Versão/ETag no layout.</td></tr>
+    <tr><td>6</td><td>Markdown simplificado (títulos, negrito, código inline, parágrafos).</td><td>Parser completo vendorizado.</td></tr>
+    <tr><td>7</td><td>Replay limitado a 24.000 caracteres.</td><td>Configurável.</td></tr>
+    <tr><td>8</td><td>Token na query string (fica no histórico do navegador).</td><td>Cookie HttpOnly após primeira carga.</td></tr>
+  </table>
+</section>
+
+<!-- 16 -->
+<section id="plataformas">
+  <h2><span class="n">16</span>Windows e Linux</h2>
+  <table>
+    <tr><th>Aspecto</th><th>Windows</th><th>Linux / macOS</th></tr>
+    <tr><td>PTY</td><td><code>pywinpty</code> (ConPTY)</td><td><code>ptyprocess</code> (pty POSIX)</td></tr>
+    <tr><td>Shell padrão</td><td>pwsh → powershell (caminho absoluto)</td><td>$SHELL → bash → zsh → /bin/sh</td></tr>
+    <tr><td>Variáveis</td><td>herdadas</td><td><code>TERM=xterm-256color</code>, <code>COLORTERM=truecolor</code></td></tr>
+    <tr><td>Launcher</td><td><code>iniciar.bat</code> / <code>iniciar-desktop.bat</code></td><td><code>./iniciar.sh</code> / <code>./iniciar.sh --desktop</code></td></tr>
+    <tr><td>Python</td><td><code>py -3</code> ou <code>python</code></td><td><code>python3</code> + <code>.venv</code> automático</td></tr>
+    <tr><td>Desktop</td><td>WebView2</td><td>GTK + WebKit2</td></tr>
+    <tr><td>Fim de linha</td><td><code>.bat</code> CRLF</td><td>demais LF (<code>.gitattributes</code>)</td></tr>
+  </table>
+<pre><code># Linux
+git clone https://github.com/GabrielGGC18/Atom-canvas.git
+cd Atom-canvas
+./iniciar.sh</code></pre>
+</section>
+
+<!-- 17 -->
+<section id="estender">
+  <h2><span class="n">17</span>Como estender</h2>
+  <div class="grid">
+    <div class="card"><h4>Novo tipo de janela</h4><p>1) <code>SIZES</code> + ícone em <code>P</code> · 2) ramo em <code>addNode</code> · 3) <code>initNovo(node)</code> montando <code>.body</code> e chamando <code>save()</code> · 4) botão/menu · 5) CSS <code>.node.novo</code>.</p></div>
+    <div class="card"><h4>Nova rota</h4><p>Handler com <code>check_auth(request)</code>, registrar em <code>create_app()</code>, chamar com <code>?token=${TOKEN}</code>.</p></div>
+    <div class="card"><h4>Novo atalho</h4><p>Entrada no <code>map</code> do <code>keydown</code> + linha no modal <code>#help</code>.</p></div>
+    <div class="card"><h4>Shell por janela</h4><p>Aceitar <code>shell</code> na query do WS, validar contra lista permitida e passar para <code>Pty</code>.</p></div>
+  </div>
+</section>
+
+<footer>ATOM Canvas · MIT · Versão em Markdown: <a href="ARQUITETURA.md">ARQUITETURA.md</a></footer>
+</main>
+
+<script>
+// destaca a seção atual no índice
+const links = [...document.querySelectorAll("#toc a")];
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach((e) => {
+    if (!e.isIntersecting) return;
+    links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+document.querySelectorAll("main section").forEach((s) => obs.observe(s));
+</script>
+</body>
+</html>
