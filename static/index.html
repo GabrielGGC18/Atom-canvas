@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>ATOM Canvas</title>
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="toolbar">
+  <div class="brand"><span class="logo"></span><span>ATOM</span><b>Canvas</b></div>
+  <div class="sep"></div>
+  <label class="workspace-wrap" title="Workspace salvo no disco">
+    <span>Workspace</span><select id="workspaceSelect"></select>
+  </label>
+  <button class="tb icon" id="workspaceNew" title="Novo workspace"><i data-ico="plus"></i></button>
+  <div class="sep"></div>
+  <button class="tb" data-add="term" title="Novo terminal (Alt+T)"><i data-ico="term"></i>Terminal</button>
+  <button class="tb" data-add="note" title="Nova nota (Alt+N)"><i data-ico="note"></i>Nota</button>
+  <button class="tb" id="resourceBtn" title="Abrir Markdown, imagem ou navegador"><i data-ico="browser"></i>Abrir</button>
+  <div id="resourceMenu" class="menu toolbar-menu">
+    <button data-resource="markdown"><i data-ico="markdown"></i>Markdown</button>
+    <button data-resource="image"><i data-ico="image"></i>Imagem</button>
+    <button data-resource="browser"><i data-ico="browser"></i>Navegador</button>
+  </div>
+  <div class="sep"></div>
+  <button class="tb icon" id="zoomOut" title="Diminuir zoom"><i data-ico="minus"></i></button>
+  <button class="tb zoomval" id="zoom" title="Voltar 100%">100%</button>
+  <button class="tb icon" id="zoomIn" title="Aumentar zoom"><i data-ico="plus"></i></button>
+  <button class="tb icon" id="fitAll" title="Ajustar tudo (Alt+0)"><i data-ico="fit"></i></button>
+  <div class="sep"></div>
+  <button class="tb toggle" id="snap" title="Encaixar na grade"><i data-ico="grid"></i>Grade</button>
+  <button class="tb toggle" id="minimapToggle" title="Mostrar minimap"><i data-ico="map"></i>Mapa</button>
+  <button class="tb icon" id="helpBtn" title="Atalhos (?)"><i data-ico="help"></i></button>
+</div>
+
+<div id="viewport"><div id="world"></div></div>
+<div id="overlay"></div>
+<div id="minimap"><canvas></canvas></div>
+
+<div id="status"><span class="led"></span><span id="statusText">—</span></div>
+
+<div id="ctx" class="menu"></div>
+
+<div id="help" class="modal">
+  <div class="card">
+    <h3>Atalhos</h3>
+    <table>
+      <tr><td><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Novo terminal</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>N</kbd></td><td>Nova nota</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>Enter</kbd></td><td>Maximizar / restaurar janela ativa</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>F</kbd></td><td>Tela cheia da janela ativa</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Sair do maximizado</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>0</kbd></td><td>Ajustar tudo na tela</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>-</kbd></td><td>Fonte do terminal focado</td></tr>
+      <tr><td>Scroll no fundo / <kbd>Ctrl</kbd>+Scroll</td><td>Zoom</td></tr>
+      <tr><td>Arrastar fundo / botão do meio</td><td>Mover canvas</td></tr>
+      <tr><td>Duplo clique no fundo</td><td>Terminal no ponto</td></tr>
+      <tr><td>Duplo clique no header</td><td>Maximizar</td></tr>
+      <tr><td>Duplo clique no título</td><td>Renomear</td></tr>
+      <tr><td>Clique na bolinha</td><td>Trocar cor</td></tr>
+      <tr><td>Botão direito no fundo</td><td>Menu</td></tr>
+      <tr><td>Ícone de elo</td><td>Conectar duas janelas; duplo clique na linha remove</td></tr>
+      <tr><td>Mapa</td><td>Minimap navegável do canvas</td></tr>
+      <tr><td>Claude</td><td>Executa <code>claude</code> no cwd do terminal</td></tr>
+    </table>
+    <button class="tb" id="helpClose">Fechar</button>
+  </div>
+</div>
+
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/xterm-addon-fit.js"></script>
+<script src="/static/vendor/xterm-addon-search.js"></script>
+<script src="/static/vendor/xterm-addon-web-links.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
