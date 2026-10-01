@@ -3,6 +3,7 @@
 Install the normal requirements plus pywebview, then run:
     python desktop.py
 """
+import os
 import socket
 import threading
 import time
@@ -15,6 +16,12 @@ def _port_free():
     # servidor morria em silêncio e a janela abria apontando pro servidor antigo,
     # que tem outro TOKEN -> todo WebSocket/API levava 403 e nada abria.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # Correção: sem SO_REUSEADDR o bind falha com conexões em TIME_WAIT de
+        # uma instância recém-fechada (falso "porta ocupada"). O asyncio/aiohttp
+        # usa SO_REUSEADDR em POSIX, então o teste imita isso. No Windows a flag
+        # permitiria roubar porta em LISTEN, por isso fica só fora do "nt".
+        if os.name != "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((HOST, PORT))
         except OSError:
