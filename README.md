@@ -57,7 +57,7 @@ O shell aberto é o `$SHELL` do usuário (fallback: `bash` → `zsh` → `/bin/s
 
 ### Windows
 
-Duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview). Manual:
+Duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview). Na primeira execução ele cria `.venv` e instala as dependências sozinho; se algo der errado, a janela fica aberta mostrando o erro. Se a porta 8765 já estiver em uso (outra instância aberta), feche-a ou rode `set ATOM_CANVAS_PORT=8766` antes. Manual:
 
 ```powershell
 py -3 -m venv .venv

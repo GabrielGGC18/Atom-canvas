@@ -3,45 +3,9 @@
 Install the normal requirements plus pywebview, then run:
     python desktop.py
 """
-import os
-import socket
 import threading
-import time
 
-from server import HOST, PORT, TOKEN, create_app
-
-
-def _port_free():
-    # Correção: antes, com a porta ocupada (outra instância rodando), a thread do
-    # servidor morria em silêncio e a janela abria apontando pro servidor antigo,
-    # que tem outro TOKEN -> todo WebSocket/API levava 403 e nada abria.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # Correção: sem SO_REUSEADDR o bind falha com conexões em TIME_WAIT de
-        # uma instância recém-fechada (falso "porta ocupada"). O asyncio/aiohttp
-        # usa SO_REUSEADDR em POSIX, então o teste imita isso. No Windows a flag
-        # permitiria roubar porta em LISTEN, por isso fica só fora do "nt".
-        if os.name != "nt":
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((HOST, PORT))
-        except OSError:
-            return False
-    return True
-
-
-def _wait_server(thread, timeout=10.0):
-    # Correção: substitui o time.sleep(0.35) fixo. Espera o servidor aceitar
-    # conexão de fato; se a thread morrer antes, avisa em vez de abrir janela vazia.
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not thread.is_alive():
-            return False
-        try:
-            socket.create_connection((HOST, PORT), timeout=0.2).close()
-            return True
-        except OSError:
-            time.sleep(0.05)
-    return False
+from server import HOST, PORT, TOKEN, create_app, port_free, wait_listening
 
 
 def main():
@@ -52,7 +16,7 @@ def main():
 
     from aiohttp import web
 
-    if not _port_free():
+    if not port_free():
         raise SystemExit(
             f"Porta {PORT} ocupada (outra instância do ATOM Canvas?). "
             f"Feche-a ou use ATOM_CANVAS_PORT=<outra porta>."
@@ -65,7 +29,7 @@ def main():
         daemon=True,
     )
     thread.start()
-    if not _wait_server(thread):
+    if not wait_listening(thread.is_alive, timeout=10.0):
         raise SystemExit(f"Servidor não subiu em {HOST}:{PORT}. Veja o erro acima.")
     webview.create_window("ATOM Canvas", f"http://{HOST}:{PORT}/?token={TOKEN}", width=1440, height=900)
     webview.start()

@@ -4,33 +4,49 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07080c">
 <title>ATOM Canvas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='url(%23g)' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/vendor/xterm.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="atomGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
 <div id="toolbar" role="toolbar" aria-label="Ferramentas do canvas">
-  <div class="brand"><span class="logo"></span><span>ATOM</span><b>Canvas</b></div>
-  <div class="sep"></div>
-  <label class="workspace-wrap" title="Workspace salvo no disco">
-    <span class="lbl">Workspace</span><select id="workspaceSelect" aria-label="Workspace"></select>
-  </label>
-  <button class="tb icon" id="workspaceNew" title="Novo workspace" aria-label="Novo workspace"><i data-ico="plus"></i></button>
-  <button class="tb icon" id="workspaceDel" title="Excluir workspace atual" aria-label="Excluir workspace"><i data-ico="trash"></i></button>
-  <div class="sep"></div>
-  <button class="tb" data-add="term" title="Novo terminal (Alt+T)"><i data-ico="term"></i><span class="lbl">Terminal</span></button>
-  <button class="tb" data-add="note" title="Nova nota (Alt+N)"><i data-ico="note"></i><span class="lbl">Nota</span></button>
-  <button class="tb" id="resourceBtn" title="Abrir Markdown, imagem ou navegador" aria-haspopup="menu" aria-expanded="false"><i data-ico="browser"></i><span class="lbl">Abrir</span></button>
-  <div class="sep"></div>
-  <button class="tb icon" id="zoomOut" title="Diminuir zoom" aria-label="Diminuir zoom"><i data-ico="minus"></i></button>
-  <button class="tb zoomval" id="zoom" title="Voltar 100%">100%</button>
-  <button class="tb icon" id="zoomIn" title="Aumentar zoom" aria-label="Aumentar zoom"><i data-ico="plus"></i></button>
-  <button class="tb icon" id="fitAll" title="Ajustar tudo (Alt+0)" aria-label="Ajustar tudo"><i data-ico="fit"></i></button>
-  <div class="sep"></div>
-  <button class="tb toggle" id="snap" title="Encaixar na grade"><i data-ico="grid"></i><span class="lbl">Grade</span></button>
-  <button class="tb toggle" id="minimapToggle" title="Mostrar minimap"><i data-ico="map"></i><span class="lbl">Mapa</span></button>
-  <button class="tb icon" id="helpBtn" title="Atalhos (?)" aria-label="Atalhos"><i data-ico="help"></i></button>
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <g class="orbits" fill="none" stroke="url(#atomGrad)" stroke-width="1.8">
+        <ellipse cx="16" cy="16" rx="13" ry="5.2"/>
+        <ellipse cx="16" cy="16" rx="13" ry="5.2" transform="rotate(60 16 16)"/>
+        <ellipse cx="16" cy="16" rx="13" ry="5.2" transform="rotate(120 16 16)"/>
+      </g>
+      <circle cx="16" cy="16" r="3" fill="url(#atomGrad)"/>
+    </svg>
+    <span class="brand-name">ATOM<b>Canvas</b></span>
+  </div>
+  <div class="grp workspace">
+    <label class="workspace-wrap" title="Workspace salvo no disco">
+      <i data-ico="layers"></i><select id="workspaceSelect" aria-label="Workspace"></select>
+    </label>
+    <button class="tb icon" id="workspaceNew" title="Novo workspace" aria-label="Novo workspace"><i data-ico="plus"></i></button>
+    <button class="tb icon danger-hover" id="workspaceDel" title="Excluir workspace atual" aria-label="Excluir workspace"><i data-ico="trash"></i></button>
+  </div>
+  <div class="grp create">
+    <button class="tb primary" data-add="term" title="Novo terminal (Alt+T)"><i data-ico="term"></i><span class="lbl">Terminal</span></button>
+    <button class="tb" data-add="note" title="Nova nota (Alt+N)"><i data-ico="note"></i><span class="lbl">Nota</span></button>
+    <button class="tb" id="resourceBtn" title="Abrir Markdown, imagem ou navegador" aria-haspopup="menu" aria-expanded="false"><i data-ico="browser"></i><span class="lbl">Abrir</span><i class="caret" data-ico="down"></i></button>
+  </div>
+  <div class="grp zoom">
+    <button class="tb icon" id="zoomOut" title="Diminuir zoom" aria-label="Diminuir zoom"><i data-ico="minus"></i></button>
+    <button class="tb zoomval" id="zoom" title="Voltar 100%">100%</button>
+    <button class="tb icon" id="zoomIn" title="Aumentar zoom" aria-label="Aumentar zoom"><i data-ico="plus"></i></button>
+    <button class="tb icon" id="fitAll" title="Ajustar tudo (Alt+0)" aria-label="Ajustar tudo"><i data-ico="fit"></i></button>
+  </div>
+  <div class="grp view">
+    <button class="tb toggle icon" id="snap" title="Encaixar na grade" aria-label="Encaixar na grade"><i data-ico="grid"></i></button>
+    <button class="tb toggle icon" id="minimapToggle" title="Mostrar minimap" aria-label="Mostrar minimap"><i data-ico="map"></i></button>
+    <button class="tb icon" id="helpBtn" title="Atalhos (?)" aria-label="Atalhos"><i data-ico="help"></i></button>
+  </div>
 </div>
 <div id="resourceMenu" class="menu" role="menu">
   <button data-resource="markdown"><i data-ico="markdown"></i>Markdown</button>
@@ -39,8 +55,26 @@
 </div>
 
 <div id="viewport"><div id="world"></div></div>
+<div id="empty" aria-hidden="true">
+  <div class="empty-card">
+    <svg class="empty-logo" viewBox="0 0 32 32" aria-hidden="true">
+      <g class="orbits" fill="none" stroke="url(#atomGrad)" stroke-width="1.2">
+        <ellipse cx="16" cy="16" rx="13" ry="5.2"/>
+        <ellipse cx="16" cy="16" rx="13" ry="5.2" transform="rotate(60 16 16)"/>
+        <ellipse cx="16" cy="16" rx="13" ry="5.2" transform="rotate(120 16 16)"/>
+      </g>
+      <circle cx="16" cy="16" r="2.4" fill="url(#atomGrad)"/>
+    </svg>
+    <h2>Canvas vazio</h2>
+    <p>Crie uma janela para começar — ou dê um duplo clique em qualquer ponto do fundo.</p>
+    <div class="empty-actions">
+      <button class="tb primary" data-add="term"><i data-ico="term"></i>Novo terminal <kbd>Alt+T</kbd></button>
+      <button class="tb ghost" data-add="note"><i data-ico="note"></i>Nova nota <kbd>Alt+N</kbd></button>
+    </div>
+  </div>
+</div>
 <div id="overlay"></div>
-<div id="minimap"><canvas></canvas></div>
+<div id="minimap"><div class="mm-label">Mapa</div><canvas></canvas></div>
 
 <div id="status"><span class="led"></span><span id="statusText">—</span><span class="dotsep">·</span><span id="saveState" data-s="saved">salvo</span></div>
 
@@ -49,11 +83,12 @@
 
 <div id="dialog" class="modal" role="dialog" aria-modal="true"><form class="card"></form></div>
 
-<div id="fatal" class="modal"><div class="card"><h3>ATOM Canvas</h3><p></p></div></div>
+<div id="fatal" class="modal"><div class="card"><h3>ATOM Canvas</h3><p></p><button class="tb primary" onclick="location.reload()">Tentar de novo</button></div></div>
 
 <div id="help" class="modal" role="dialog" aria-modal="true" aria-label="Atalhos">
   <div class="card">
     <h3>Atalhos</h3>
+    <p class="sub">Pressione <kbd>?</kbd> a qualquer momento para ver esta lista.</p>
     <table>
       <tr><td><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Novo terminal</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>N</kbd></td><td>Nova nota</td></tr>
@@ -77,7 +112,7 @@
       <tr><td>Mapa</td><td>Minimap: clique ou arraste para navegar</td></tr>
       <tr><td>Claude</td><td>Executa <code>claude</code> no cwd do terminal</td></tr>
     </table>
-    <button class="tb" id="helpClose">Fechar</button>
+    <div class="dlg-actions"><button class="tb primary" id="helpClose">Entendi</button></div>
   </div>
 </div>
 
