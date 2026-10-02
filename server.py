@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from aiohttp import web, WSMsgType
+from aiohttp import web, WSCloseCode, WSMsgType
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
@@ -457,7 +457,16 @@ def create_app():
 async def _kill_sessions(app):
     """Encerra todos os shells ao parar o servidor (libera threads de leitura)."""
     for s in list(SESSIONS.values()):
+        # Desliga o WebSocket antes de matar o shell: senão o pump avisa "exit" e
+        # o navegador trata como processo encerrado, sem reconectar quando o
+        # servidor voltar. Fechar com 1001 (going away) leva à reconexão.
+        ws, s.ws = s.ws, None
         s.pty.kill()
+        if ws is not None and not ws.closed:
+            try:
+                await ws.close(code=WSCloseCode.GOING_AWAY, message=b"server shutdown")
+            except Exception:
+                pass
     SESSIONS.clear()
 
 

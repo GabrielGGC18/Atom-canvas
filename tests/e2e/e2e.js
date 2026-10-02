@@ -115,7 +115,8 @@ async function waitFor(fn, ms = 15000, msg = "timeout") {
     assert((await page.textContent("#statusText")).includes("Clique em outra janela"));
     await page.click(".node.term header .title");
     await waitFor(() => page.evaluate(() => __atom.connections.length === 1));
-    assert(await page.$(".connection-line"), "linha não desenhada");
+    // a linha é desenhada no próximo frame (scheduleRender usa rAF)
+    await waitFor(async () => !!(await page.$(".connection-line")), 3000, "linha não desenhada");
   });
 
   await step("Esc cancela modo conexão", async () => {
