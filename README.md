@@ -15,7 +15,7 @@ Canvas infinito local com **terminais reais**, notas e janelas de Markdown, imag
 - Conexões (linhas) entre janelas
 - Botão para rodar `claude` (Claude Code) na pasta do terminal
 - Busca embutida no terminal (`Ctrl+Shift+F`, com contador de resultados) e links clicáveis
-- Workspaces: vários canvases salvos em disco (criar, trocar, excluir); gravação atômica do layout
+- Workspaces em abas: vários canvases salvos em disco (criar, trocar com `Alt+1…9`, renomear, duplicar, excluir); terminais continuam rodando em segundo plano ao trocar de aba; gravação atômica do layout
 - Markdown com títulos, listas, checklists, citações, blocos de código e links
 - Diálogos próprios (sem `prompt()` do navegador), notificações e indicador de "salvo / salvando / erro"
 - Modo desktop opcional com pywebview

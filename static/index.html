@@ -48,6 +48,10 @@
     <button class="tb icon" id="helpBtn" title="Atalhos (?)" aria-label="Atalhos"><i data-ico="help"></i></button>
   </div>
 </div>
+<nav id="wsTabs" aria-label="Workspaces">
+  <div class="ws-list" role="tablist"></div>
+  <button class="ws-add" id="wsTabAdd" title="Novo workspace (Alt+W)" aria-label="Novo workspace"><i data-ico="plus"></i></button>
+</nav>
 <div id="resourceMenu" class="menu" role="menu">
   <button data-resource="markdown"><i data-ico="markdown"></i>Markdown</button>
   <button data-resource="image"><i data-ico="image"></i>Imagem</button>
@@ -83,7 +87,7 @@
 
 <div id="dialog" class="modal" role="dialog" aria-modal="true"><form class="card"></form></div>
 
-<div id="fatal" class="modal"><div class="card"><h3>ATOM Canvas</h3><p></p><button class="tb primary" onclick="location.reload()">Tentar de novo</button></div></div>
+<div id="fatal" class="modal"><div class="card"><h3>ATOM Canvas</h3><p></p><button class="tb primary" id="fatalRetry">Tentar de novo</button></div></div>
 
 <div id="help" class="modal" role="dialog" aria-modal="true" aria-label="Atalhos">
   <div class="card">
@@ -95,6 +99,9 @@
       <tr><td><kbd>Alt</kbd>+<kbd>Enter</kbd></td><td>Maximizar / restaurar janela ativa</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>F</kbd></td><td>Tela cheia da janela ativa</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>[</kbd> / <kbd>]</kbd></td><td>Janela anterior / próxima (centraliza)</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd></td><td>Ir para o workspace 1–9</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>W</kbd></td><td>Novo workspace</td></tr>
+      <tr><td>Aba do workspace</td><td>Duplo clique renomeia · botão direito: renomear, duplicar, excluir</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Sair do maximizado / cancelar conexão</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>0</kbd></td><td>Ajustar tudo na tela</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>-</kbd></td><td>Fonte do terminal focado</td></tr>

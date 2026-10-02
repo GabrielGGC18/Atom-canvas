@@ -237,6 +237,31 @@ async function waitFor(fn, ms = 15000, msg = "timeout") {
     await waitFor(async () => (await page.$$(".node")).length === 2, 8000, "default não recarregou");
   });
 
+  await step("abas de workspace: criar, Alt+1, shell em segundo plano, renomear, excluir", async () => {
+    await page.keyboard.press("Alt+w");
+    await page.fill("#dialog input", "abas-e2e");
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.evaluate(() => __atom.workspace === "abas-e2e"), 8000, "Alt+W não criou");
+    await waitFor(() => page.evaluate(() => [...__atom.nodes.values()].some((n) => n.ws?.readyState === 1)), 15000, "shell não abriu");
+    await waitFor(async () => !!(await page.$('.ws-tab.on[data-ws="abas-e2e"]')), 5000, "aba não ativa");
+    await page.keyboard.press("Alt+1");
+    await waitFor(() => page.evaluate(() => __atom.workspace === "default"), 8000, "Alt+1 não trocou");
+    // o shell do outro workspace segue vivo e aparece na aba
+    await waitFor(async () => (await api("/api/workspaces?details=1")).find((w) => w.name === "abas-e2e")?.running === 1, 8000, "shell não ficou em segundo plano");
+    await page.dblclick('.ws-tab[data-ws="abas-e2e"]');
+    await page.fill("#dialog input", "abas-renomeada");
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.evaluate(() => __atom.workspace === "abas-renomeada"), 8000, "renomear falhou");
+    await page.keyboard.press("Alt+1");
+    await waitFor(async () => !!(await page.$('.ws-tab[data-ws="abas-renomeada"] .ws-live')), 8000, "indicador de shell em segundo plano ausente");
+    await page.click('.ws-tab[data-ws="abas-renomeada"]', { button: "right" });
+    await page.click("#ctx button.danger");
+    await page.click("#dialog [type=submit]");
+    await waitFor(async () => !(await api("/api/workspaces")).includes("abas-renomeada"), 8000, "não excluiu");
+    const h = await api("/api/health");
+    assert(h.sessions === 1, `shell do workspace excluído ficou órfão (${h.sessions} sessões)`);
+  });
+
   await step("queda do servidor → reconecta sozinho", async () => {
     server.kill();
     await page.waitForSelector(".node.term.dead", { timeout: 10000 });

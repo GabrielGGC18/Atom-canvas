@@ -230,8 +230,10 @@ class Session:
 | `/ws/term`            | GET→WS | `ws_term`         | Terminal                                     |
 | `/api/layout`         | GET    | `get_layout`      | Lê layout do workspace                       |
 | `/api/layout`         | PUT    | `put_layout`      | Grava layout do workspace                    |
-| `/api/workspaces`     | GET    | `list_workspaces` | Lista nomes (`default` primeiro)             |
-| `/api/workspaces`     | DELETE | `delete_workspace`| Exclui workspace (`default` é protegido)     |
+| `/api/workspaces`     | GET    | `list_workspaces` | Lista nomes (`default` primeiro); `?details=1` traz janelas/terminais/ativos |
+| `/api/workspaces`     | DELETE | `delete_workspace`| Exclui workspace e encerra seus shells (`default` é protegido) |
+| `/api/workspaces/rename`    | POST | `rename_workspace`    | Renomeia (`?workspace=&to=`), mantém os shells |
+| `/api/workspaces/duplicate` | POST | `duplicate_workspace` | Copia o layout; a cópia abre shells novos      |
 | `/api/session`        | DELETE | `delete_session`  | Encerra o shell de um `sid`                  |
 | `/api/health`         | GET    | `health`          | `{ok, sessions, shell}` — usado no boot      |
 
@@ -370,7 +372,10 @@ Todas exigem `?token=<T>`; resposta `403` sem token válido ou com `Origin` estr
 GET  /api/workspaces                      → ["default", "projeto-x", ...]
 GET  /api/layout?workspace=<nome>         → { view, nodes, connections }
 PUT  /api/layout?workspace=<nome>         ← { view, nodes, connections }  → {"ok": true, "workspace": <nome canônico>}
-DELETE /api/workspaces?workspace=<nome>   → {"ok": true}
+GET  /api/workspaces?details=1            → [{name, windows, terminals, running, updated}, ...]
+POST /api/workspaces/rename?workspace=<a>&to=<b>     → {"ok": true, "workspace": <b canônico>}  (409 se já existe)
+POST /api/workspaces/duplicate?workspace=<a>&to=<b>  → {"ok": true, "workspace": <b canônico>}  (409 se já existe)
+DELETE /api/workspaces?workspace=<nome>   → {"ok": true, "killed": n}
 DELETE /api/session?sid=<sid>             → {"ok": true, "killed": bool}
 GET  /api/health                          → {"ok": true, "sessions": n, "shell": "pwsh.exe"}
 ```

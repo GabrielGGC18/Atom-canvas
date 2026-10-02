@@ -72,6 +72,9 @@ class ServerTest(AioHTTPTestCase):
         r = await self.client.put(f"/api/layout?{T}&workspace=x", data="{nope",
                                   headers={"Content-Type": "application/json"})
         self.assertEqual(r.status, 400)
+        r = await self.client.put(f"/api/layout?{T}&workspace=x", data="[" * 200000,
+                                  headers={"Content-Type": "application/json"})
+        self.assertEqual(r.status, 400)                       # aninhamento extremo
         r = await self.client.put(f"/api/layout?{T}&workspace=x", json=[1, 2])
         self.assertEqual(r.status, 400)
 
@@ -93,6 +96,9 @@ class ServerTest(AioHTTPTestCase):
         self.assertEqual(server._workspace_name("  Meu  Projeto. "), "Meu-Projeto")
         self.assertEqual(server._workspace_name("LAYOUT"), "default")
         self.assertEqual(server._workspace_name("..."), "default")
+        self.assertEqual(server._workspace_name("CON"), "CON-ws")      # dispositivo no Windows
+        self.assertEqual(server._workspace_name("com1"), "com1-ws")
+        self.assertEqual(server._workspace_name("console"), "console")
         r = await self.client.put(f"/api/layout?{T}&workspace=a.b c", json={"nodes": []})
         self.assertEqual((await r.json())["workspace"], "ab-c")
 
@@ -107,6 +113,53 @@ class ServerTest(AioHTTPTestCase):
         self.assertNotIn("apagar", names)
         r = await self.client.delete(f"/api/workspaces?{T}&workspace=default")
         self.assertEqual(r.status, 400)
+
+    async def test_rename_and_duplicate_workspace(self):
+        layout = {"nodes": [{"id": "t1", "type": "term", "sessionId": "sess-1"}, {"id": "n1", "type": "note", "text": "oi"}]}
+        await self.client.put(f"/api/layout?{T}&workspace=origem", json=layout)
+        r = await self.client.post(f"/api/workspaces/duplicate?{T}&workspace=origem&to=Copia 1")
+        self.assertEqual((await r.json())["workspace"], "Copia-1")
+        copia = await (await self.client.get(f"/api/layout?{T}&workspace=Copia-1")).json()
+        self.assertEqual(len(copia["nodes"]), 2)
+        self.assertNotIn("sessionId", copia["nodes"][0])      # cópia abre shells novos
+        r = await self.client.post(f"/api/workspaces/duplicate?{T}&workspace=origem&to=Copia-1")
+        self.assertEqual(r.status, 409)                         # não sobrescreve
+        r = await self.client.post(f"/api/workspaces/rename?{T}&workspace=origem&to=novo-nome")
+        self.assertEqual(r.status, 200)
+        names = await (await self.client.get(f"/api/workspaces?{T}")).json()
+        self.assertIn("novo-nome", names)
+        self.assertNotIn("origem", names)
+        orig = await (await self.client.get(f"/api/layout?{T}&workspace=novo-nome")).json()
+        self.assertEqual(orig["nodes"][0]["sessionId"], "sess-1")  # renomear mantém shells
+        for q in ("workspace=default&to=x", "workspace=novo-nome&to=default", "workspace=novo-nome&to=", "workspace=nao-existe&to=y"):
+            r = await self.client.post(f"/api/workspaces/rename?{T}&{q}")
+            self.assertIn(r.status, (400, 404), q)
+
+    async def test_workspace_details_and_delete_kills_shells(self):
+        class FakePty:
+            killed = False
+            def kill(self): self.killed = True
+        pty = FakePty()
+        server.SESSIONS["sess-viva"] = server.Session("sess-viva", ".", pty)
+        layout = {"nodes": [{"id": "a", "type": "term", "sessionId": "sess-viva"}, {"id": "b", "type": "term"}, {"id": "c", "type": "note"}]}
+        await self.client.put(f"/api/layout?{T}&workspace=detalhe", json=layout)
+        infos = await (await self.client.get(f"/api/workspaces?{T}&details=1")).json()
+        info = next(i for i in infos if i["name"] == "detalhe")
+        self.assertEqual((info["windows"], info["terminals"], info["running"]), (3, 2, 1))
+        r = await self.client.delete(f"/api/workspaces?{T}&workspace=detalhe")
+        self.assertEqual((await r.json())["killed"], 1)
+        self.assertTrue(pty.killed)
+        self.assertNotIn("sess-viva", server.SESSIONS)
+
+    async def test_security_headers_and_host_check(self):
+        r = await self.client.get("/")
+        self.assertIn("script-src 'self'", r.headers.get("Content-Security-Policy", ""))
+        self.assertEqual(r.headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(r.headers.get("Referrer-Policy"), "no-referrer")
+        self.assertEqual(r.headers.get("X-Content-Type-Options"), "nosniff")
+        # DNS rebinding: Host de outro domínio é recusado
+        r = await self.client.get(f"/api/health?{T}", headers={"Host": "evil.example:8765"})
+        self.assertEqual(r.status, 421)
 
     # ---------- terminal ----------
     async def _read_until(self, ws, needle, timeout=20):

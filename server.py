@@ -53,14 +53,23 @@ def _default_shell():
 SHELL = os.environ.get("ATOM_SHELL") or _default_shell()
 
 
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(10)), *(f"LPT{i}" for i in range(10))}
+
+
 def _workspace_name(value):
     """Return a safe, stable workspace name for a URL/file name."""
     value = (value or "default").strip()
     if value.lower() in ("default", "layout"):
         return "default"
     value = re.sub(r"[^a-zA-Z0-9 _-]+", "", value).strip()
-    value = re.sub(r"\s+", "-", value)
-    return value[:64] or "default"
+    value = re.sub(r"\s+", "-", value)[:64]
+    if not value:
+        return "default"
+    # CON, NUL, COM1... são dispositivos no Windows: "con.json" não é um arquivo
+    # comum e gravar nele perde o layout (ou trava). Ganha um sufixo.
+    if value.split(".")[0].upper() in WINDOWS_RESERVED:
+        value = value[:61] + "-ws"
+    return value
 
 
 def _layout_path(name, create=True):
@@ -337,7 +346,7 @@ async def put_layout(request):
     check_auth(request)
     try:
         data = await request.json()
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: JSON aninhado demais
         raise web.HTTPBadRequest(text="JSON invalido")
     if not isinstance(data, dict):
         raise web.HTTPBadRequest(text="layout deve ser objeto")
@@ -347,12 +356,75 @@ async def put_layout(request):
     return web.json_response({"ok": True, "workspace": name})
 
 
-async def list_workspaces(request):
-    check_auth(request)
+def _workspace_names():
     names = {"default"}
     if WORKSPACES.exists():
         names.update(p.stem for p in WORKSPACES.glob("*.json"))
-    return web.json_response(sorted(names, key=lambda n: (n != "default", n.lower())))
+    return sorted(names, key=lambda n: (n != "default", n.lower()))
+
+
+def _workspace_info(name):
+    path = _layout_path(name, create=False)
+    layout = _read_layout(path)
+    sids = [n.get("sessionId") for n in layout["nodes"] if n.get("type") == "term"]
+    try:
+        updated = path.stat().st_mtime
+    except OSError:
+        updated = None
+    return {
+        "name": name,
+        "windows": len(layout["nodes"]),
+        "terminals": len(sids),
+        # shells que seguem rodando no servidor (inclusive em segundo plano)
+        "running": sum(1 for sid in sids if isinstance(sid, str) and sid in SESSIONS),
+        "updated": updated,
+    }
+
+
+async def list_workspaces(request):
+    check_auth(request)
+    names = _workspace_names()
+    if request.query.get("details") == "1":
+        infos = await asyncio.get_running_loop().run_in_executor(None, lambda: [_workspace_info(n) for n in names])
+        return web.json_response(infos, headers={"Cache-Control": "no-store"})
+    return web.json_response(names)
+
+
+def _target_name(request):
+    src = _workspace_name(request.query.get("workspace"))
+    raw = request.query.get("to", "")
+    dst = _workspace_name(raw)
+    if not raw.strip() or dst == "default":
+        raise web.HTTPBadRequest(text="nome de destino invalido")
+    if dst == src:
+        raise web.HTTPBadRequest(text="destino igual a origem")
+    if _layout_path(dst, create=False).exists():
+        raise web.HTTPConflict(text="ja existe um workspace com esse nome")
+    return src, dst
+
+
+async def rename_workspace(request):
+    check_auth(request)
+    src, dst = _target_name(request)
+    if src == "default":
+        raise web.HTTPBadRequest(text="workspace default nao pode ser renomeado")
+    path = _layout_path(src, create=False)
+    if not path.exists():
+        raise web.HTTPNotFound(text="workspace nao existe")
+    os.replace(path, _layout_path(dst))
+    return web.json_response({"ok": True, "workspace": dst})
+
+
+async def duplicate_workspace(request):
+    check_auth(request)
+    src, dst = _target_name(request)
+    layout = _read_layout(_layout_path(src, create=False))
+    for node in layout["nodes"]:
+        # a cópia abre shells novos em vez de dividir os mesmos processos
+        node.pop("sessionId", None)
+    text = json.dumps(layout, ensure_ascii=False, indent=1)
+    await asyncio.get_running_loop().run_in_executor(None, _atomic_write, _layout_path(dst), text)
+    return web.json_response({"ok": True, "workspace": dst})
 
 
 async def delete_workspace(request):
@@ -361,9 +433,15 @@ async def delete_workspace(request):
     if name == "default":
         raise web.HTTPBadRequest(text="workspace default nao pode ser excluido")
     path = _layout_path(name, create=False)
+    killed = 0
     if path.exists():
+        # encerra os shells do workspace: senão viram processos órfãos
+        for n in _read_layout(path)["nodes"]:
+            sid = n.get("sessionId")
+            if isinstance(sid, str) and kill_session(sid):
+                killed += 1
         path.unlink()
-    return web.json_response({"ok": True, "workspace": name})
+    return web.json_response({"ok": True, "workspace": name, "killed": killed})
 
 
 async def health(request):
@@ -373,6 +451,30 @@ async def health(request):
 
 async def index(request):
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src * data: blob:; frame-src http: https: data: blob:; "
+    f"connect-src 'self' ws://127.0.0.1:{PORT} ws://localhost:{PORT}; "
+    "font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
+
+
+@web.middleware
+async def security(request, handler):
+    # Host fora da lista = possível DNS rebinding (site malicioso apontando
+    # seu domínio para 127.0.0.1). O token já barra a API; isto fecha o resto.
+    if request.host.rsplit(":", 1)[0].lower() not in ALLOWED_HOSTS:
+        raise web.HTTPMisdirectedRequest(text="host nao permitido")
+    resp = await handler(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.path == "/" or request.path.endswith(".html"):
+        resp.headers.setdefault("Content-Security-Policy", CSP)
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+    return resp
 
 
 @web.middleware
@@ -422,6 +524,8 @@ def main():
             f"\n  Porta {PORT} ocupada (outra instância do ATOM Canvas já está aberta?).\n"
             f"  Feche a janela dela ou use outra porta: set ATOM_CANVAS_PORT=8766\n"
         )
+    if len(TOKEN) < 16:
+        print("  [aviso] ATOM_CANVAS_TOKEN curto: qualquer programa local pode adivinhá-lo. Use 16+ caracteres.", file=sys.stderr)
     app = create_app()
     url = f"http://{HOST}:{PORT}/?token={TOKEN}"
     print(f"\n  ATOM Canvas -> {url}\n  (Ctrl+C para encerrar)\n", flush=True)
@@ -440,7 +544,7 @@ def main():
 
 
 def create_app():
-    app = web.Application(client_max_size=MAX_LAYOUT_BYTES, middlewares=[no_cache_static])
+    app = web.Application(client_max_size=MAX_LAYOUT_BYTES, middlewares=[security, no_cache_static])
     app.router.add_get("/", index)
     app.router.add_get("/ws/term", ws_term)
     app.router.add_delete("/api/session", delete_session)
@@ -448,6 +552,8 @@ def create_app():
     app.router.add_put("/api/layout", put_layout)
     app.router.add_get("/api/workspaces", list_workspaces)
     app.router.add_delete("/api/workspaces", delete_workspace)
+    app.router.add_post("/api/workspaces/rename", rename_workspace)
+    app.router.add_post("/api/workspaces/duplicate", duplicate_workspace)
     app.router.add_get("/api/health", health)
     app.router.add_static("/static", STATIC)
     app.on_shutdown.append(_kill_sessions)

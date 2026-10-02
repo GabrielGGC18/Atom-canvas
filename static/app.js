@@ -66,13 +66,17 @@ let snap = localStorage.getItem("atomSnap") === "1";
 let workspace = sanitizeWorkspace(new URLSearchParams(location.search).get("workspace") || localStorage.getItem("atomWorkspace") || "default");
 let connectSource = null;
 let loading = false;
+const wsList = $("#wsTabs .ws-list");
+let wsInfos = [], wsTabsSig = "", wsBusy = 0;
 
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 // Espelho de _workspace_name() do server.py: client e servidor concordam no nome.
 function sanitizeWorkspace(value) {
   let v = String(value || "default").trim();
   if (["default", "layout"].includes(v.toLowerCase())) return "default";
   v = v.replace(/[^a-zA-Z0-9 _-]+/g, "").trim().replace(/\s+/g, "-").slice(0, 64);
-  return v || "default";
+  if (!v) return "default";
+  return WINDOWS_RESERVED.test(v) ? v.slice(0, 61) + "-ws" : v;
 }
 
 const api = (path, params = {}, opts = {}) =>
@@ -372,6 +376,7 @@ function updateStatus() {
   if (!connectSource) $("#statusText").textContent = parts.join(" · ");
   $(".led").dataset.s = live === terms.length ? "ok" : live ? "warn" : "down";
   document.body.classList.toggle("empty", !all.length);
+  renderWsTabs();
 }
 
 // ================= nós =================
@@ -544,7 +549,11 @@ function disposeNode(node) {
   node.closing = true;
   clearTimeout(node.retryTimer);
   node.ws?.close();
-  node.term?.dispose();
+  // O xterm agenda um setTimeout(syncScrollArea) ao abrir; descartar antes dele
+  // rodar (fechar logo após criar) gera erro "reading 'dimensions'". A fila de
+  // timers é FIFO, então adiar o dispose garante que ele roda primeiro.
+  const term = node.term;
+  if (term) setTimeout(() => term.dispose(), 0);
   node.ro?.disconnect();
   node.el.remove();
   nodes.delete(node.data.id);
@@ -1020,13 +1029,158 @@ async function loadWorkspace(name) {
 }
 
 async function loadWorkspaces() {
-  let names = ["default"];
-  try { const res = await api("/api/workspaces"); if (res.ok) names = await res.json(); } catch {}
-  if (!names.includes(workspace)) names.push(workspace);
-  workspaceSelect.innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  let infos = [{ name: "default" }];
+  try { const res = await api("/api/workspaces", { details: "1" }); if (res.ok) infos = await res.json(); } catch {}
+  if (!infos.some((w) => w.name === workspace)) infos.push({ name: workspace });
+  wsInfos = infos;
+  workspaceSelect.innerHTML = infos.map((w) => `<option value="${esc(w.name)}">${esc(w.name)}</option>`).join("");
   workspaceSelect.value = workspace;
   $("#workspaceDel").disabled = workspace === "default";
+  wsTabsSig = ""; renderWsTabs();
 }
+
+// ================= abas de workspace =================
+// Os shells continuam rodando no servidor ao trocar de aba; a contagem "ativos"
+// mostra quantos seguem vivos em cada workspace em segundo plano.
+function renderWsTabs() {
+  const terms = [...nodes.values()].filter((n) => n.data.type === "term");
+  const rows = wsInfos.map((w) => w.name === workspace
+    ? { ...w, windows: nodes.size, running: terms.filter((n) => n.ws?.readyState === 1).length, current: true }
+    : w);
+  const sig = JSON.stringify(rows.map((w) => [w.name, w.windows, w.running, !!w.current]));
+  if (sig === wsTabsSig) return;
+  wsTabsSig = sig;
+  wsList.innerHTML = "";
+  rows.forEach((w, i) => {
+    const b = document.createElement("button");
+    b.className = "ws-tab" + (w.current ? " on" : "");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", w.current ? "true" : "false");
+    b.dataset.ws = w.name;
+    b.innerHTML = `<span class="ws-name"></span>${w.windows ? `<span class="ws-count">${w.windows}</span>` : ""}${w.running && !w.current ? `<span class="ws-live">${w.running}</span>` : ""}`;
+    b.querySelector(".ws-name").textContent = w.name === "default" ? "Principal" : w.name;
+    const extra = w.running && !w.current ? ` · ${w.running} terminal(is) rodando em segundo plano` : "";
+    b.title = `${w.name}${i < 9 ? ` (Alt+${i + 1})` : ""} · ${w.windows || 0} janela(s)${extra}\nDuplo clique renomeia · botão direito para mais`;
+    wsList.appendChild(b);
+  });
+  wsList.querySelector(".on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// Ações de workspace em fila: uma renomeação confirmada durante a troca de aba
+// espera a troca terminar em vez de ser descartada (ou de correr junto).
+let wsChain = Promise.resolve();
+function wsAction(fn) {
+  wsBusy++;
+  const run = wsChain.then(fn).catch((err) => { console.error(err); toast("Falha na operação de workspace", { kind: "error" }); })
+    .finally(() => { wsBusy--; });
+  wsChain = run;
+  return run;
+}
+const switchWorkspace = (name) => wsAction(async () => {
+  if (name === workspace) return;
+  await loadWorkspace(name);
+  await loadWorkspaces();
+});
+async function settleSaves() {
+  if (saveTimer) await flushSave();
+  else await saveInFlight;
+}
+async function newWorkspace() {
+  const name = await ask({ title: "Novo workspace", label: "Nome (letras, números, - e _)", value: "workspace-" + new Date().toISOString().slice(0, 10) });
+  if (!name?.trim()) return;
+  const clean = sanitizeWorkspace(name);
+  if (clean !== name.trim()) toast(`Nome ajustado para "${clean}"`);
+  await wsAction(async () => {
+    await loadWorkspace(clean);
+    await flushSave();
+    await loadWorkspaces();
+  });
+}
+async function wsRequest(path, name, to) {
+  const res = await api(path, { workspace: name, to }, { method: "POST" }).catch(() => null);
+  if (res?.ok) return (await res.json()).workspace;
+  const msg = res?.status === 409 ? "Já existe um workspace com esse nome" : (await res?.text().catch(() => "")) || "servidor não respondeu";
+  toast(`Não foi possível concluir: ${msg}`, { kind: "error" });
+  return null;
+}
+async function renameWorkspace(name) {
+  if (name === "default") return toast("O workspace Principal não pode ser renomeado");
+  const to = await ask({ title: `Renomear "${name}"`, label: "Novo nome (letras, números, - e _)", value: name });
+  if (!to?.trim() || sanitizeWorkspace(to) === name) return;
+  await wsAction(async () => {
+    const current = name === workspace;
+    if (current) { await settleSaves(); loading = true; }  // nada de regravar o nome antigo
+    const dst = await wsRequest("/api/workspaces/rename", name, to);
+    if (current) {
+      loading = false;
+      if (dst) {
+        workspace = dst;
+        localStorage.setItem("atomWorkspace", dst);
+        const u = new URL(location.href); u.searchParams.set("workspace", dst); history.replaceState(null, "", u);
+      }
+    }
+    if (dst) toast(`Workspace renomeado para "${dst}"`);
+    await loadWorkspaces();
+  });
+}
+async function duplicateWorkspace(name) {
+  const to = await ask({ title: `Duplicar "${name === "default" ? "Principal" : name}"`, label: "Nome da cópia (os terminais abrem shells novos)", value: `${name === "default" ? "principal" : name}-copia` });
+  if (!to?.trim()) return;
+  await wsAction(async () => {
+    if (name === workspace) await settleSaves();
+    const dst = await wsRequest("/api/workspaces/duplicate", name, to);
+    if (!dst) return loadWorkspaces();
+    await loadWorkspace(dst);
+    await loadWorkspaces();
+    toast(`Cópia "${dst}" criada`);
+  });
+}
+async function deleteWorkspace(name) {
+  if (name === "default") return;
+  const ok = await ask({ title: `Excluir workspace "${name}"?`, label: "O layout salvo será apagado. Shells abertos neste workspace serão encerrados.", input: false, okText: "Excluir", danger: true });
+  if (!ok) return;
+  await wsAction(async () => {
+    const current = name === workspace;
+    if (current) {
+      const sids = [...nodes.values()].map((n) => n.data.sessionId).filter(Boolean);
+      clearTimeout(saveTimer); saveTimer = null;
+      loading = true;  // nada de salvar o workspace que está sendo apagado
+      clearCanvas();
+      sids.forEach((s) => killSession(s));
+    }
+    const res = await api("/api/workspaces", { workspace: name }, { method: "DELETE" }).catch(() => null);
+    loading = false;
+    if (!res?.ok) toast("Falha ao excluir o workspace", { kind: "error" });
+    else toast(`Workspace "${name}" excluído`);
+    if (current) await loadWorkspace("default");
+    await loadWorkspaces();
+  });
+}
+wsList.addEventListener("click", (e) => { const t = e.target.closest(".ws-tab"); if (t) switchWorkspace(t.dataset.ws); });
+wsList.addEventListener("dblclick", (e) => { const t = e.target.closest(".ws-tab"); if (t) renameWorkspace(t.dataset.ws); });
+wsList.addEventListener("contextmenu", (e) => {
+  const t = e.target.closest(".ws-tab");
+  if (!t) return;
+  e.preventDefault();
+  const name = t.dataset.ws, isDefault = name === "default";
+  showMenu(e, [
+    ...(name !== workspace ? [["center", "Abrir", "", () => switchWorkspace(name)]] : []),
+    ...(isDefault ? [] : [["edit", "Renomear…", "", () => renameWorkspace(name)]]),
+    ["copy", "Duplicar…", "", () => duplicateWorkspace(name)],
+    ...(isDefault ? [] : [null, ["trash", "Excluir", "", () => deleteWorkspace(name), true]]),
+  ]);
+});
+$("#wsTabAdd").onclick = newWorkspace;
+// Atualiza as contagens das outras abas (shells podem terminar em segundo plano).
+setInterval(async () => {
+  if (document.hidden || wsBusy || loading) return;
+  try {
+    const res = await api("/api/workspaces", { details: "1" });
+    if (!res.ok) return;
+    const infos = await res.json();
+    if (!infos.some((w) => w.name === workspace)) infos.push({ name: workspace });
+    wsInfos = infos; renderWsTabs();
+  } catch {}
+}, 15000);
 
 // ================= menu de contexto =================
 function hideCtx() { ctx.classList.remove("on"); }
@@ -1107,33 +1261,10 @@ const minimapBtn = $("#minimapToggle");
 const setMinimap = (on) => { minimap.classList.toggle("on", on); minimapBtn.classList.toggle("on", on); localStorage.setItem("atomMinimap", on ? "1" : "0"); renderMinimap(); };
 minimapBtn.onclick = () => setMinimap(!minimap.classList.contains("on"));
 setMinimap(localStorage.getItem("atomMinimap") === "1");
-workspaceSelect.addEventListener("change", async () => { await loadWorkspace(workspaceSelect.value); await loadWorkspaces(); });
-$("#workspaceNew").onclick = async () => {
-  const name = await ask({ title: "Novo workspace", label: "Nome (letras, números, - e _)", value: "workspace-" + new Date().toISOString().slice(0, 10) });
-  if (!name?.trim()) return;
-  const clean = sanitizeWorkspace(name);
-  if (clean !== name.trim()) toast(`Nome ajustado para "${clean}"`);
-  await loadWorkspace(clean);
-  await flushSave();
-  await loadWorkspaces();
-};
-$("#workspaceDel").onclick = async () => {
-  if (workspace === "default") return;
-  const ok = await ask({ title: `Excluir workspace "${workspace}"?`, label: "O layout salvo será apagado. Shells abertos neste workspace serão encerrados.", input: false, okText: "Excluir", danger: true });
-  if (!ok) return;
-  const victim = workspace;
-  const sids = [...nodes.values()].map((n) => n.data.sessionId).filter(Boolean);
-  clearTimeout(saveTimer); saveTimer = null;
-  loading = true;  // nada de salvar o workspace que está sendo apagado
-  clearCanvas();
-  sids.forEach((s) => killSession(s));
-  const res = await api("/api/workspaces", { workspace: victim }, { method: "DELETE" }).catch(() => null);
-  loading = false;
-  if (!res?.ok) toast("Falha ao excluir o workspace", { kind: "error" });
-  else toast(`Workspace "${victim}" excluído`);
-  await loadWorkspace("default");
-  await loadWorkspaces();
-};
+workspaceSelect.addEventListener("change", () => switchWorkspace(workspaceSelect.value));
+$("#workspaceNew").onclick = newWorkspace;
+$("#workspaceDel").onclick = () => deleteWorkspace(workspace);
+$("#fatalRetry").onclick = () => location.reload();
 $("#helpBtn").onclick = () => help.classList.add("on");
 $("#helpClose").onclick = () => help.classList.remove("on");
 help.addEventListener("pointerdown", (e) => { if (e.target === help) help.classList.remove("on"); });
@@ -1163,7 +1294,13 @@ addEventListener("keydown", (e) => {
       f: () => active && toggleFull(active),
       "]": () => cycleFocus(1),
       "[": () => cycleFocus(-1),
+      w: newWorkspace,
     };
+    if (/^[1-9]$/.test(k) && !e.shiftKey) {
+      const w = wsInfos[+k - 1];
+      if (w) { e.preventDefault(); e.stopPropagation(); switchWorkspace(w.name); }
+      return;
+    }
     if (map[k]) { e.preventDefault(); e.stopPropagation(); map[k](); return; }
   }
   if (e.key === "Escape") {
