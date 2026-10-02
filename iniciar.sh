@@ -15,6 +15,10 @@ fi
 if [ ! -x .venv/bin/python ]; then
   echo "Criando ambiente virtual (.venv)..."
   "$PY" -m venv .venv
+fi
+# Reinstala se faltar algo (ex.: instalação anterior interrompida).
+if ! .venv/bin/python -c "import aiohttp, ptyprocess" 2>/dev/null; then
+  echo "Instalando dependências..."
   .venv/bin/pip install -q --upgrade pip
   .venv/bin/pip install -q -r requirements.txt
 fi

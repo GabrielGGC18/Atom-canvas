@@ -6,8 +6,11 @@ import json
 import os
 import re
 import secrets
+import socket
 import sys
 import tempfile
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -381,13 +384,55 @@ async def no_cache_static(request, handler):
     return resp
 
 
+def port_free(host=None, port=None):
+    """True se dá para escutar em host:port (detecta outra instância rodando)."""
+    host, port = host or HOST, port or PORT
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # Sem SO_REUSEADDR o bind falha com conexões em TIME_WAIT de uma instância
+        # recém-fechada (falso "porta ocupada"). O aiohttp usa SO_REUSEADDR em
+        # POSIX; no Windows a flag permitiria roubar porta em LISTEN.
+        if os.name != "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def wait_listening(alive=lambda: True, timeout=15.0):
+    """Espera o servidor aceitar conexões; False se `alive()` cair ou estourar o tempo."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not alive():
+            return False
+        try:
+            socket.create_connection((HOST, PORT), timeout=0.2).close()
+            return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
+
 def main():
+    if not port_free():
+        # Antes o navegador abria com o TOKEN novo apontando para a instância
+        # antiga (outro token) -> "Token inválido" e o canvas não carregava.
+        sys.exit(
+            f"\n  Porta {PORT} ocupada (outra instância do ATOM Canvas já está aberta?).\n"
+            f"  Feche a janela dela ou use outra porta: set ATOM_CANVAS_PORT=8766\n"
+        )
     app = create_app()
     url = f"http://{HOST}:{PORT}/?token={TOKEN}"
-    print(f"\n  ATOM Canvas -> {url}\n")
+    print(f"\n  ATOM Canvas -> {url}\n  (Ctrl+C para encerrar)\n", flush=True)
     if "--open" in sys.argv:
-        import webbrowser
-        webbrowser.open(url)
+        # Abre o navegador só quando o servidor já escuta (antes abria cedo
+        # demais e mostrava "não foi possível conectar").
+        def _open():
+            if wait_listening():
+                import webbrowser
+                webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
     try:
         web.run_app(app, host=HOST, port=PORT, print=None)
     finally:
