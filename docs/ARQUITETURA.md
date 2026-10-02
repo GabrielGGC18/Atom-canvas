@@ -231,6 +231,9 @@ class Session:
 | `/api/layout`         | GET    | `get_layout`      | Lê layout do workspace                       |
 | `/api/layout`         | PUT    | `put_layout`      | Grava layout do workspace                    |
 | `/api/workspaces`     | GET    | `list_workspaces` | Lista nomes (`default` primeiro)             |
+| `/api/workspaces`     | DELETE | `delete_workspace`| Exclui workspace (`default` é protegido)     |
+| `/api/session`        | DELETE | `delete_session`  | Encerra o shell de um `sid`                  |
+| `/api/health`         | GET    | `health`          | `{ok, sessions, shell}` — usado no boot      |
 
 `create_app()` monta o roteamento (reutilizado por `desktop.py`); `main()` imprime a URL com token, abre o navegador se `--open` e roda `web.run_app`.
 
@@ -347,12 +350,16 @@ Cliente → servidor:
 | ------------------------------ | ---------------------------------- |
 | `{"t":"i","d":"<texto>"}`      | Entrada de teclado para o shell    |
 | `{"t":"r","c":<cols>,"r":<rows>}` | Redimensionar PTY               |
+| `{"t":"kill"}`                 | Encerra o shell da sessão          |
+
+Mensagens malformadas são ignoradas (o terminal não cai).
 
 Servidor → cliente:
 
 | Mensagem                       | Significado                                     |
 | ------------------------------ | ----------------------------------------------- |
 | `{"t":"o","d":"<texto>"}`      | Saída do shell (inclui sequências ANSI)         |
+| `{"t":"hello","resumed":bool,"cwd":..,"shell":..}` | Primeira mensagem; `resumed` indica sessão retomada (cliente limpa a tela antes do replay) |
 | `{"t":"exit"}`                 | Shell terminou; WebSocket será fechado          |
 
 ### 8.2 HTTP
@@ -362,7 +369,16 @@ Todas exigem `?token=<T>`; resposta `403` sem token válido ou com `Origin` estr
 ```
 GET  /api/workspaces                      → ["default", "projeto-x", ...]
 GET  /api/layout?workspace=<nome>         → { view, nodes, connections }
-PUT  /api/layout?workspace=<nome>         ← { view, nodes, connections }  → {"ok": true}
+PUT  /api/layout?workspace=<nome>         ← { view, nodes, connections }  → {"ok": true, "workspace": <nome canônico>}
+DELETE /api/workspaces?workspace=<nome>   → {"ok": true}
+DELETE /api/session?sid=<sid>             → {"ok": true, "killed": bool}
+GET  /api/health                          → {"ok": true, "sessions": n, "shell": "pwsh.exe"}
+```
+
+O PUT grava em arquivo temporário + `os.replace` (atômico). Layout com JSON inválido no disco é
+renomeado para `<arquivo>.corrupt` e o GET devolve um layout vazio.
+
+```
 ```
 
 ---
@@ -558,6 +574,7 @@ Recomendações operacionais: nunca usar `0.0.0.0`, port-forward, ngrok/túneis;
 | `ATOM_CANVAS_TOKEN` | aleatório                                 | Token fixo                     |
 | `ATOM_SHELL`        | `pwsh`→`powershell` (Win) / `$SHELL`      | Executável do shell            |
 | `ATOM_MAX_TERMINALS`| `128`                                     | Tamanho do pool de leitura (máx. terminais simultâneos) |
+| `ATOM_CANVAS_DATA`  | pasta do projeto                          | Diretório de `layout.json` e `workspaces/` |
 
 Argumento de linha de comando: `--open` abre o navegador automaticamente.
 
@@ -565,13 +582,13 @@ Argumento de linha de comando: `--open` abre o navegador automaticamente.
 
 ## 15. Limitações conhecidas
 
-1. **Sessões órfãs**: fechar uma janela (✕), reiniciar (⟳) ou trocar de workspace fecha só o WebSocket; o processo do shell continua em `SESSIONS` até o servidor parar. Melhoria: endpoint `DELETE /api/session/<sid>` chamado por `removeNode`/`restart`.
+1. ~~Sessões órfãs~~ — resolvido na v3: fechar (✕) chama `DELETE /api/session` após o prazo do "Desfazer"; reiniciar (⟳) encerra a sessão antiga. Trocar de workspace mantém os shells de propósito (voltar ao workspace reconecta); excluir o workspace os encerra.
 2. **Sessões não sobrevivem ao reinício do servidor** (ficam só em RAM). O layout volta; os shells são novos.
-3. **iframe e `allow-same-origin`**: o preview "Navegador" usa `sandbox` com `allow-scripts` + `allow-same-origin`. Para URLs externas é ok; uma URL do próprio `127.0.0.1:<PORT>` anularia o sandbox. Muitos sites também bloqueiam iframe (`X-Frame-Options`).
+3. **iframe**: o preview "Navegador" usa `sandbox` com `allow-scripts`; `allow-same-origin` só é dado a URLs de outra origem (uma página do próprio servidor não consegue ler o token). Muitos sites bloqueiam iframe (`X-Frame-Options`).
 4. **Zoom ≠ 100%**: seleção com mouse no xterm pode desalinhar (o xterm não conhece o `scale` CSS). Solução de uso: maximizar.
 5. **Concorrência de abas**: duas abas no mesmo workspace sobrescrevem o JSON uma da outra (último `PUT` vence) e disputam as mesmas sessões.
-6. **Markdown simplificado**: suporta títulos `#/##/###`, `**negrito**`, `` `código` `` e parágrafos — sem listas, links ou blocos de código.
-7. **Buffer de replay** limitado a 24.000 caracteres por sessão.
+6. **Markdown subset**: títulos, negrito/itálico/riscado, código inline e em bloco, listas (com checklist), citações, `---`, links e imagens `http(s)` — sem tabelas nem HTML cru (tudo é escapado).
+7. **Buffer de replay** limitado a 200.000 caracteres por sessão.
 8. Token trafega na query string (fica no histórico do navegador e em logs locais).
 
 ---

@@ -47,3 +47,22 @@ Legenda: [x] feito · [ ] pendente
 - [x] Janela Markdown preview / imagem / browser (iframe)
 - [x] xterm.js local (sem CDN) + app desktop opcional com pywebview
 - [x] Busca no terminal (addon-search) e links clicáveis (addon-web-links)
+
+## T6 — v3: robustez + UX
+- [x] Fechar terminal encerra o shell no servidor (antes ficava órfão); reiniciar mata a sessão antiga
+- [x] Fechar janela com toast "Desfazer" (7s) — restaura janela, conexões e a mesma sessão de shell
+- [x] Troca de workspace grava pendências antes e não salva canvas vazio por cima (race do debounce)
+- [x] Layout gravado de forma atômica; JSON corrompido vira `.corrupt` e o app abre vazio em vez de quebrar
+- [x] WebSocket tolerante a mensagens/parametros inválidos; limite de terminais; spawn fora do event loop
+- [x] Reconexão automática com backoff + camada "desconectado" com ação; aviso de "nova sessão"
+- [x] Diálogos próprios no lugar de `prompt()`; histórico de pastas para "Terminal em pasta…"
+- [x] Busca embutida no terminal com contador, anterior/próximo e destaque
+- [x] Conexões ancoradas na borda das janelas, destacadas/animadas na janela ativa, área de clique maior
+- [x] Menu de contexto da janela (botão direito no header); `Alt+[` / `Alt+]` navega e centraliza
+- [x] Excluir workspace; nome sanitizado igual no cliente e no servidor
+- [x] Markdown: listas, checklists, citações, código, links seguros (só http/https), itálico, riscado
+- [x] Indicador salvo/salvando/erro; LED verde/amarelo/vermelho; save no `pagehide`
+- [x] Zoom suave para trackpad; minimap arrastável e lembrado; ordem z salva
+- [x] Toolbar responsiva; header compacto em janelas estreitas (container queries); CSS da nota corrigido
+- [x] Sem cache do app.js após atualizar; `ATOM_CANVAS_DATA` para isolar dados
+- [x] Testes: 15 de backend (unittest) + 24 E2E no Chrome

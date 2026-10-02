@@ -2,47 +2,56 @@
 <html lang="pt-br">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>ATOM Canvas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='url(%23g)' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/vendor/xterm.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div id="toolbar">
+<div id="toolbar" role="toolbar" aria-label="Ferramentas do canvas">
   <div class="brand"><span class="logo"></span><span>ATOM</span><b>Canvas</b></div>
   <div class="sep"></div>
   <label class="workspace-wrap" title="Workspace salvo no disco">
-    <span>Workspace</span><select id="workspaceSelect"></select>
+    <span class="lbl">Workspace</span><select id="workspaceSelect" aria-label="Workspace"></select>
   </label>
-  <button class="tb icon" id="workspaceNew" title="Novo workspace"><i data-ico="plus"></i></button>
+  <button class="tb icon" id="workspaceNew" title="Novo workspace" aria-label="Novo workspace"><i data-ico="plus"></i></button>
+  <button class="tb icon" id="workspaceDel" title="Excluir workspace atual" aria-label="Excluir workspace"><i data-ico="trash"></i></button>
   <div class="sep"></div>
-  <button class="tb" data-add="term" title="Novo terminal (Alt+T)"><i data-ico="term"></i>Terminal</button>
-  <button class="tb" data-add="note" title="Nova nota (Alt+N)"><i data-ico="note"></i>Nota</button>
-  <button class="tb" id="resourceBtn" title="Abrir Markdown, imagem ou navegador"><i data-ico="browser"></i>Abrir</button>
-  <div id="resourceMenu" class="menu toolbar-menu">
-    <button data-resource="markdown"><i data-ico="markdown"></i>Markdown</button>
-    <button data-resource="image"><i data-ico="image"></i>Imagem</button>
-    <button data-resource="browser"><i data-ico="browser"></i>Navegador</button>
-  </div>
+  <button class="tb" data-add="term" title="Novo terminal (Alt+T)"><i data-ico="term"></i><span class="lbl">Terminal</span></button>
+  <button class="tb" data-add="note" title="Nova nota (Alt+N)"><i data-ico="note"></i><span class="lbl">Nota</span></button>
+  <button class="tb" id="resourceBtn" title="Abrir Markdown, imagem ou navegador" aria-haspopup="menu" aria-expanded="false"><i data-ico="browser"></i><span class="lbl">Abrir</span></button>
   <div class="sep"></div>
-  <button class="tb icon" id="zoomOut" title="Diminuir zoom"><i data-ico="minus"></i></button>
+  <button class="tb icon" id="zoomOut" title="Diminuir zoom" aria-label="Diminuir zoom"><i data-ico="minus"></i></button>
   <button class="tb zoomval" id="zoom" title="Voltar 100%">100%</button>
-  <button class="tb icon" id="zoomIn" title="Aumentar zoom"><i data-ico="plus"></i></button>
-  <button class="tb icon" id="fitAll" title="Ajustar tudo (Alt+0)"><i data-ico="fit"></i></button>
+  <button class="tb icon" id="zoomIn" title="Aumentar zoom" aria-label="Aumentar zoom"><i data-ico="plus"></i></button>
+  <button class="tb icon" id="fitAll" title="Ajustar tudo (Alt+0)" aria-label="Ajustar tudo"><i data-ico="fit"></i></button>
   <div class="sep"></div>
-  <button class="tb toggle" id="snap" title="Encaixar na grade"><i data-ico="grid"></i>Grade</button>
-  <button class="tb toggle" id="minimapToggle" title="Mostrar minimap"><i data-ico="map"></i>Mapa</button>
-  <button class="tb icon" id="helpBtn" title="Atalhos (?)"><i data-ico="help"></i></button>
+  <button class="tb toggle" id="snap" title="Encaixar na grade"><i data-ico="grid"></i><span class="lbl">Grade</span></button>
+  <button class="tb toggle" id="minimapToggle" title="Mostrar minimap"><i data-ico="map"></i><span class="lbl">Mapa</span></button>
+  <button class="tb icon" id="helpBtn" title="Atalhos (?)" aria-label="Atalhos"><i data-ico="help"></i></button>
+</div>
+<div id="resourceMenu" class="menu" role="menu">
+  <button data-resource="markdown"><i data-ico="markdown"></i>Markdown</button>
+  <button data-resource="image"><i data-ico="image"></i>Imagem</button>
+  <button data-resource="browser"><i data-ico="browser"></i>Navegador</button>
 </div>
 
 <div id="viewport"><div id="world"></div></div>
 <div id="overlay"></div>
 <div id="minimap"><canvas></canvas></div>
 
-<div id="status"><span class="led"></span><span id="statusText">—</span></div>
+<div id="status"><span class="led"></span><span id="statusText">—</span><span class="dotsep">·</span><span id="saveState" data-s="saved">salvo</span></div>
 
-<div id="ctx" class="menu"></div>
+<div id="ctx" class="menu" role="menu"></div>
+<div id="toasts" aria-live="polite"></div>
 
-<div id="help" class="modal">
+<div id="dialog" class="modal" role="dialog" aria-modal="true"><form class="card"></form></div>
+
+<div id="fatal" class="modal"><div class="card"><h3>ATOM Canvas</h3><p></p></div></div>
+
+<div id="help" class="modal" role="dialog" aria-modal="true" aria-label="Atalhos">
   <div class="card">
     <h3>Atalhos</h3>
     <table>
@@ -50,18 +59,22 @@
       <tr><td><kbd>Alt</kbd>+<kbd>N</kbd></td><td>Nova nota</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>Enter</kbd></td><td>Maximizar / restaurar janela ativa</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>F</kbd></td><td>Tela cheia da janela ativa</td></tr>
-      <tr><td><kbd>Esc</kbd></td><td>Sair do maximizado</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>[</kbd> / <kbd>]</kbd></td><td>Janela anterior / próxima (centraliza)</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Sair do maximizado / cancelar conexão</td></tr>
       <tr><td><kbd>Alt</kbd>+<kbd>0</kbd></td><td>Ajustar tudo na tela</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>-</kbd></td><td>Fonte do terminal focado</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd></td><td>Buscar no terminal</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> com seleção</td><td>Copiar do terminal</td></tr>
       <tr><td>Scroll no fundo / <kbd>Ctrl</kbd>+Scroll</td><td>Zoom</td></tr>
       <tr><td>Arrastar fundo / botão do meio</td><td>Mover canvas</td></tr>
       <tr><td>Duplo clique no fundo</td><td>Terminal no ponto</td></tr>
       <tr><td>Duplo clique no header</td><td>Maximizar</td></tr>
       <tr><td>Duplo clique no título</td><td>Renomear</td></tr>
-      <tr><td>Clique na bolinha</td><td>Trocar cor</td></tr>
-      <tr><td>Botão direito no fundo</td><td>Menu</td></tr>
+      <tr><td>Clique na bolinha</td><td>Trocar cor (<kbd>Shift</kbd> volta)</td></tr>
+      <tr><td>Botão direito</td><td>Menu do fundo ou da janela (no header)</td></tr>
       <tr><td>Ícone de elo</td><td>Conectar duas janelas; duplo clique na linha remove</td></tr>
-      <tr><td>Mapa</td><td>Minimap navegável do canvas</td></tr>
+      <tr><td>Fechar janela</td><td>Pode ser desfeito por alguns segundos</td></tr>
+      <tr><td>Mapa</td><td>Minimap: clique ou arraste para navegar</td></tr>
       <tr><td>Claude</td><td>Executa <code>claude</code> no cwd do terminal</td></tr>
     </table>
     <button class="tb" id="helpClose">Fechar</button>

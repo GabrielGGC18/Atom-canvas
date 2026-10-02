@@ -1,0 +1,7 @@
+{
+  "name": "atom-canvas-e2e",
+  "private": true,
+  "description": "Testes E2E opcionais do ATOM Canvas (usa o Chrome/Edge instalado)",
+  "scripts": { "test": "node e2e.js" },
+  "dependencies": { "playwright-core": "^1.48.0" }
+}

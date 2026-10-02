@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,14 +16,20 @@ from aiohttp import web, WSMsgType
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
-LAYOUT = BASE / "layout.json"
-WORKSPACES = BASE / "workspaces"
+# Dados do usuário (layout + workspaces). ATOM_CANVAS_DATA permite isolar
+# (testes, perfis diferentes) sem tocar no layout.json padrão.
+DATA = Path(os.environ.get("ATOM_CANVAS_DATA") or BASE)
+LAYOUT = DATA / "layout.json"
+WORKSPACES = DATA / "workspaces"
 HOST, PORT = "127.0.0.1", int(os.environ.get("ATOM_CANVAS_PORT", 8765))
 TOKEN = os.environ.get("ATOM_CANVAS_TOKEN") or secrets.token_urlsafe(16)
+MAX_TERMINALS = int(os.environ.get("ATOM_MAX_TERMINALS", 128))
+SCROLLBACK_CHARS = 200_000          # saída guardada para replay ao reconectar
+MAX_LAYOUT_BYTES = 32 * 1024 * 1024  # notas/markdown grandes cabem no layout
 
 # Cada terminal mantém uma thread bloqueada em pty.read(); o executor padrão do
 # asyncio (min(32, cpus+4) threads) travaria novos shells com muitos terminais.
-PTY_READERS = ThreadPoolExecutor(max_workers=int(os.environ.get("ATOM_MAX_TERMINALS", 128)), thread_name_prefix="pty")
+PTY_READERS = ThreadPoolExecutor(max_workers=MAX_TERMINALS, thread_name_prefix="pty")
 
 
 def _default_shell():
@@ -53,16 +60,70 @@ def _workspace_name(value):
     return value[:64] or "default"
 
 
-def _layout_path(name):
+def _layout_path(name, create=True):
     name = _workspace_name(name)
     if name == "default":
         return LAYOUT
-    WORKSPACES.mkdir(exist_ok=True)
+    if create:
+        WORKSPACES.mkdir(parents=True, exist_ok=True)
     return WORKSPACES / f"{name}.json"
 
 
 def _empty_layout():
     return {"nodes": [], "connections": [], "view": None}
+
+
+def _atomic_write(path, text):
+    """Grava em arquivo temporário e troca de uma vez: queda no meio não corrompe."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _read_layout(path):
+    if not path.exists():
+        return _empty_layout()
+    try:
+        data = json.loads(path.read_text("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("layout não é objeto")
+    except (ValueError, UnicodeDecodeError) as e:
+        # Não perde o arquivo ruim: guarda cópia e devolve layout vazio.
+        backup = path.with_name(path.name + ".corrupt")
+        try:
+            os.replace(path, backup)
+        except OSError:
+            pass
+        print(f"  [aviso] layout corrompido ({e}); copiado para {backup.name}", file=sys.stderr)
+        return _empty_layout()
+    return _normalize_layout(data)
+
+
+def _normalize_layout(data):
+    nodes = data.get("nodes")
+    conns = data.get("connections")
+    view = data.get("view")
+    return {
+        "nodes": [n for n in nodes if isinstance(n, dict)] if isinstance(nodes, list) else [],
+        "connections": [c for c in conns if isinstance(c, dict)] if isinstance(conns, list) else [],
+        "view": view if isinstance(view, dict) else None,
+    }
+
+
+def _int(value, default, lo, hi):
+    try:
+        return min(hi, max(lo, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 # ---------- PTY abstraction (Windows: pywinpty / POSIX: pty) ----------
@@ -86,7 +147,10 @@ class Pty:
         self.proc.setwinsize(rows, cols)
 
     def alive(self):
-        return self.proc.isalive()
+        try:
+            return self.proc.isalive()
+        except Exception:
+            return False
 
     def kill(self):
         try:
@@ -107,107 +171,177 @@ class Session:
     rows: int = 30
 
     def remember(self, data):
-        self.output = (self.output + data)[-24000:]
+        out = self.output + data
+        if len(out) > SCROLLBACK_CHARS:
+            out = out[-SCROLLBACK_CHARS:]
+            # Corta numa quebra de linha para não começar o replay no meio de
+            # uma sequência de escape ANSI.
+            nl = out.find("\n")
+            if 0 <= nl < 4096:
+                out = out[nl + 1:]
+        self.output = out
 
 
 SESSIONS = {}
 
 
+def kill_session(sid):
+    s = SESSIONS.pop(sid, None)
+    if s:
+        s.pty.kill()
+    return s is not None
+
+
 def check_auth(request):
-    if request.query.get("token") != TOKEN:
+    if not secrets.compare_digest(request.query.get("token", ""), TOKEN):
         raise web.HTTPForbidden(text="token invalido")
     origin = request.headers.get("Origin")
     if origin and origin not in (f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"):
         raise web.HTTPForbidden(text="origin bloqueada")
 
 
+async def _send(ws, payload):
+    if ws is not None and not ws.closed:
+        try:
+            await ws.send_str(json.dumps(payload))
+            return True
+        except Exception:
+            return False
+    return False
+
+
 async def ws_term(request):
     check_auth(request)
     cwd = request.query.get("cwd") or str(Path.home())
-    if not Path(cwd).is_dir():
+    try:
+        if not Path(cwd).expanduser().is_dir():
+            cwd = str(Path.home())
+        else:
+            cwd = str(Path(cwd).expanduser())
+    except OSError:
         cwd = str(Path.home())
-    sid = request.query.get("sid") or secrets.token_urlsafe(12)
-    ws = web.WebSocketResponse()
+    sid = (request.query.get("sid") or secrets.token_urlsafe(12))[:128]
+    cols = _int(request.query.get("cols"), 100, 2, 1000)
+    rows = _int(request.query.get("rows"), 30, 2, 500)
+    ws = web.WebSocketResponse(heartbeat=30, max_msg_size=8 * 1024 * 1024)
     await ws.prepare(request)
-    cols, rows = int(request.query.get("cols", 100)), int(request.query.get("rows", 30))
     loop = asyncio.get_running_loop()
 
     session = SESSIONS.get(sid)
     if session and not session.pty.alive():
         SESSIONS.pop(sid, None)
         session = None
+    resumed = session is not None
     if session is None:
-        try:
-            session = Session(sid, cwd, Pty(cwd, cols, rows), cols=cols, rows=rows)
-        except Exception as e:
-            await ws.send_str(json.dumps({"t": "o", "d": f"\x1b[31mFalha ao abrir shell: {e}\x1b[0m\r\n"}))
+        if len(SESSIONS) >= MAX_TERMINALS:
+            await _send(ws, {"t": "o", "d": f"\x1b[31mLimite de {MAX_TERMINALS} terminais atingido.\x1b[0m\r\n"})
+            await _send(ws, {"t": "exit"})
             await ws.close()
             return ws
+        try:
+            # spawn bloqueia ~100ms (ConPTY): fora do event loop.
+            pty = await loop.run_in_executor(None, Pty, cwd, cols, rows)
+            session = Session(sid, cwd, pty, cols=cols, rows=rows)
+            other = SESSIONS.get(sid)
+            if other is not None and other.pty.alive():
+                # outra conexão com o mesmo sid criou a sessão durante o spawn
+                pty.kill()
+                session, resumed = other, True
+        except Exception as e:
+            await _send(ws, {"t": "o", "d": f"\x1b[31mFalha ao abrir shell ({SHELL}): {e}\x1b[0m\r\n"})
+            await _send(ws, {"t": "exit"})
+            await ws.close()
+            return ws
+
+    if not resumed:
         SESSIONS[sid] = session
 
         async def pump(s=session):
             while s.pty.alive():
-                data = ""
                 try:
                     data = await loop.run_in_executor(PTY_READERS, s.pty.read)
                 except Exception:
                     break
                 if not data:
+                    await asyncio.sleep(0.01)
                     continue
                 s.remember(data)
-                if s.ws and not s.ws.closed:
-                    try:
-                        await s.ws.send_str(json.dumps({"t": "o", "d": data}))
-                    except Exception:
-                        s.ws = None
-            if s.ws and not s.ws.closed:
+                if s.ws is not None and not await _send(s.ws, {"t": "o", "d": data}):
+                    s.ws = None
+            if SESSIONS.get(s.sid) is s:
+                SESSIONS.pop(s.sid, None)
+            if s.ws is not None:
+                await _send(s.ws, {"t": "exit"})
                 try:
-                    await s.ws.send_str(json.dumps({"t": "exit"}))
                     await s.ws.close()
                 except Exception:
                     pass
 
         session.task = asyncio.create_task(pump())
 
-    if session.ws and not session.ws.closed and session.ws is not ws:
+    if session.ws is not None and not session.ws.closed and session.ws is not ws:
         await session.ws.close()
     session.ws = ws
+    await _send(ws, {"t": "hello", "resumed": resumed, "cwd": session.cwd, "shell": os.path.basename(SHELL)})
     if session.output:
-        await ws.send_str(json.dumps({"t": "o", "d": session.output}))
+        await _send(ws, {"t": "o", "d": session.output})
     try:
-        session.pty.resize(max(2, cols), max(2, rows))
+        session.pty.resize(cols, rows)
     except Exception:
         pass
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
                 continue
-            m = json.loads(msg.data)
-            if m["t"] == "i":
-                session.pty.write(m["d"])
-            elif m["t"] == "r":
-                session.cols, session.rows = max(2, int(m["c"])), max(2, int(m["r"]))
-                session.pty.resize(session.cols, session.rows)
+            try:
+                m = json.loads(msg.data)
+                kind = m.get("t")
+                if kind == "i":
+                    data = m.get("d")
+                    if isinstance(data, str) and data:
+                        session.pty.write(data)
+                elif kind == "r":
+                    session.cols = _int(m.get("c"), session.cols, 2, 1000)
+                    session.rows = _int(m.get("r"), session.rows, 2, 500)
+                    session.pty.resize(session.cols, session.rows)
+                elif kind == "kill":
+                    kill_session(sid)
+                    break
+            except (ValueError, AttributeError, TypeError):
+                continue  # mensagem malformada: ignora em vez de derrubar o terminal
+            except Exception:
+                if not session.pty.alive():
+                    break
     finally:
         if session.ws is ws:
             session.ws = None
     return ws
 
 
+async def delete_session(request):
+    check_auth(request)
+    sid = request.query.get("sid", "")
+    return web.json_response({"ok": True, "killed": kill_session(sid)})
+
+
 async def get_layout(request):
     check_auth(request)
-    path = _layout_path(request.query.get("workspace"))
-    data = json.loads(path.read_text("utf-8")) if path.exists() else _empty_layout()
-    data.setdefault("connections", [])
-    return web.json_response(data)
+    path = _layout_path(request.query.get("workspace"), create=False)
+    return web.json_response(_read_layout(path), headers={"Cache-Control": "no-store"})
 
 
 async def put_layout(request):
     check_auth(request)
-    data = await request.json()
-    data.setdefault("connections", [])
-    _layout_path(request.query.get("workspace")).write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
-    return web.json_response({"ok": True})
+    try:
+        data = await request.json()
+    except ValueError:
+        raise web.HTTPBadRequest(text="JSON invalido")
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="layout deve ser objeto")
+    name = _workspace_name(request.query.get("workspace"))
+    text = json.dumps(_normalize_layout(data), ensure_ascii=False, indent=1)
+    await asyncio.get_running_loop().run_in_executor(None, _atomic_write, _layout_path(name), text)
+    return web.json_response({"ok": True, "workspace": name})
 
 
 async def list_workspaces(request):
@@ -218,8 +352,33 @@ async def list_workspaces(request):
     return web.json_response(sorted(names, key=lambda n: (n != "default", n.lower())))
 
 
+async def delete_workspace(request):
+    check_auth(request)
+    name = _workspace_name(request.query.get("workspace"))
+    if name == "default":
+        raise web.HTTPBadRequest(text="workspace default nao pode ser excluido")
+    path = _layout_path(name, create=False)
+    if path.exists():
+        path.unlink()
+    return web.json_response({"ok": True, "workspace": name})
+
+
+async def health(request):
+    check_auth(request)
+    return web.json_response({"ok": True, "sessions": len(SESSIONS), "shell": os.path.basename(SHELL)})
+
+
 async def index(request):
-    return web.FileResponse(STATIC / "index.html")
+    return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+@web.middleware
+async def no_cache_static(request, handler):
+    # Sem isso o navegador/pywebview segue usando app.js antigo após git pull.
+    resp = await handler(request)
+    if request.path.startswith("/static/") and not request.path.startswith("/static/vendor/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 def main():
@@ -229,16 +388,22 @@ def main():
     if "--open" in sys.argv:
         import webbrowser
         webbrowser.open(url)
-    web.run_app(app, host=HOST, port=PORT, print=None)
+    try:
+        web.run_app(app, host=HOST, port=PORT, print=None)
+    finally:
+        PTY_READERS.shutdown(wait=False, cancel_futures=True)
 
 
 def create_app():
-    app = web.Application()
+    app = web.Application(client_max_size=MAX_LAYOUT_BYTES, middlewares=[no_cache_static])
     app.router.add_get("/", index)
     app.router.add_get("/ws/term", ws_term)
+    app.router.add_delete("/api/session", delete_session)
     app.router.add_get("/api/layout", get_layout)
     app.router.add_put("/api/layout", put_layout)
     app.router.add_get("/api/workspaces", list_workspaces)
+    app.router.add_delete("/api/workspaces", delete_workspace)
+    app.router.add_get("/api/health", health)
     app.router.add_static("/static", STATIC)
     app.on_shutdown.append(_kill_sessions)
     return app
@@ -249,7 +414,6 @@ async def _kill_sessions(app):
     for s in list(SESSIONS.values()):
         s.pty.kill()
     SESSIONS.clear()
-    PTY_READERS.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

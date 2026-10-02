@@ -16,3 +16,9 @@ desktop.ini
 .vscode/
 .idea/
 *.log
+
+# Testes / dados temporários
+node_modules/
+package-lock.json
+*.corrupt
+.*.tmp

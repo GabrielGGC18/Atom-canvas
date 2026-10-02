@@ -7,14 +7,17 @@ Canvas infinito local com **terminais reais**, notas e janelas de Markdown, imag
 ## Recursos
 
 - Terminais PowerShell/bash reais via PTY (pywinpty no Windows, ptyprocess no Linux/macOS) com xterm.js
-- Sessões persistentes: o shell sobrevive ao recarregar a página
+- Sessões persistentes: o shell sobrevive ao recarregar a página; reconexão automática se o servidor cair
+- Fechar janela com **Desfazer** (o shell só é encerrado após alguns segundos — sem processos órfãos)
 - Canvas infinito: pan, zoom, ajustar tudo, encaixe na grade, minimap
 - Janelas: mover, redimensionar, minimizar, maximizar, tela cheia, duplicar, cor por janela, renomear
 - Notas, preview de Markdown, imagem e navegador (iframe)
 - Conexões (linhas) entre janelas
 - Botão para rodar `claude` (Claude Code) na pasta do terminal
-- Busca no terminal e links clicáveis
-- Workspaces: vários canvases salvos em disco
+- Busca embutida no terminal (`Ctrl+Shift+F`, com contador de resultados) e links clicáveis
+- Workspaces: vários canvases salvos em disco (criar, trocar, excluir); gravação atômica do layout
+- Markdown com títulos, listas, checklists, citações, blocos de código e links
+- Diálogos próprios (sem `prompt()` do navegador), notificações e indicador de "salvo / salvando / erro"
 - Modo desktop opcional com pywebview
 
 ## Requisitos
@@ -75,6 +78,7 @@ O servidor imprime `http://127.0.0.1:8765/?token=...` e abre o navegador (`--ope
 | `ATOM_CANVAS_TOKEN` | aleatório a cada execução           | Token fixo de acesso            |
 | `ATOM_SHELL`        | `pwsh`/`powershell` (Win), `$SHELL` | Shell aberto nos terminais      |
 | `ATOM_MAX_TERMINALS`| `128`                               | Máx. de terminais simultâneos   |
+| `ATOM_CANVAS_DATA`  | pasta do projeto                    | Onde ficam `layout.json` e `workspaces/` |
 
 ## Atalhos
 
@@ -85,10 +89,13 @@ O servidor imprime `http://127.0.0.1:8765/?token=...` e abre o navegador (`--ope
 | `Alt+F`                     | Tela cheia da janela ativa          |
 | `Alt+0`                     | Ajustar tudo na tela                |
 | `Ctrl+=` / `Ctrl+-`         | Fonte do terminal focado            |
+| `Ctrl+Shift+F`              | Buscar no terminal                  |
+| `Alt+[` / `Alt+]`           | Janela anterior / próxima           |
 | Scroll no fundo / Ctrl+Scroll | Zoom                              |
 | Arrastar fundo              | Mover canvas                        |
 | Duplo clique no fundo       | Novo terminal no ponto              |
 | Botão direito no fundo      | Menu de contexto                    |
+| Botão direito no header     | Menu da janela                      |
 | `?`                         | Ajuda                               |
 
 ## Estrutura
@@ -106,7 +113,18 @@ static/style.css     tema
 static/vendor/       xterm.js + addons (MIT)
 layout.json          layout salvo (ignorado no git)
 workspaces/          workspaces salvos (ignorado no git)
+tests/test_server.py testes do backend (unittest, abre shell real)
+tests/e2e/           testes E2E opcionais no navegador (playwright-core + Chrome/Edge)
 ```
+
+## Testes
+
+```bash
+python -m unittest discover -s tests -v      # backend: auth, layout, workspaces, PTY
+cd tests/e2e && npm install && node e2e.js    # E2E (opcional): ATOM_PY=<python> CHROME=<navegador>
+```
+
+Os testes usam uma pasta de dados temporária (`ATOM_CANVAS_DATA`) e porta própria — não tocam no seu `layout.json`.
 
 ## Segurança
 
