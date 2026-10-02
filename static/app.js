@@ -41,6 +41,7 @@ const P = {
   down: '<path d="M6 9l6 6 6-6"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   reload: '<path d="M4 4v6h6"/><path d="M20 20v-6h-6"/><path d="M5.5 15a7 7 0 0 0 12.4 2M18.5 9A7 7 0 0 0 6.1 7"/>',
 };
 const ico = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
@@ -49,8 +50,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
 const TERM_THEME = {
-  background: "#0a0b10", foreground: "#d6dbe8", cursor: "#a78bfa", cursorAccent: "#0a0b10",
-  selectionBackground: "rgba(124,92,255,.35)",
+  background: "#0b0c12", foreground: "#dde1ec", cursor: "#a78bfa", cursorAccent: "#0b0c12",
+  selectionBackground: "rgba(139,92,246,.38)",
   black: "#1b1e28", red: "#ff5f6d", green: "#3ddc97", yellow: "#facc15", blue: "#60a5fa",
   magenta: "#c084fc", cyan: "#22d3ee", white: "#d6dbe8",
   brightBlack: "#4b5266", brightRed: "#ff8a95", brightGreen: "#6ee7b7", brightYellow: "#fde68a",
@@ -194,18 +195,24 @@ function renderMinimap() {
   const ctx2 = minimapCanvas.getContext("2d"), w = minimapCanvas.clientWidth, h = minimapCanvas.clientHeight;
   minimapCanvas.width = w * devicePixelRatio; minimapCanvas.height = h * devicePixelRatio;
   ctx2.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  ctx2.clearRect(0, 0, w, h); ctx2.fillStyle = "rgba(11,13,20,.94)"; ctx2.fillRect(0, 0, w, h);
+  ctx2.clearRect(0, 0, w, h); ctx2.fillStyle = "rgba(7,8,12,.7)"; ctx2.fillRect(0, 0, w, h);
   const m = mapBounds(w, h);
   if (!m) return;
   const tx = (x) => 9 + (x - m.minX) * m.scale, ty = (y) => 9 + (y - m.minY) * m.scale;
+  const rr = (x, y, w, h, rad) => (ctx2.roundRect ? ctx2.roundRect(x, y, w, h, rad) : ctx2.rect(x, y, w, h));
   for (const d of m.list) {
     ctx2.fillStyle = d.color || COLORS[0];
-    ctx2.globalAlpha = active?.data === d ? 1 : .6;
-    ctx2.fillRect(tx(d.x), ty(d.y), Math.max(3, d.w * m.scale), Math.max(3, nodeH(d) * m.scale));
+    ctx2.globalAlpha = active?.data === d ? .95 : .5;
+    ctx2.beginPath();
+    rr(tx(d.x), ty(d.y), Math.max(3, d.w * m.scale), Math.max(3, nodeH(d) * m.scale), 2);
+    ctx2.fill();
   }
-  ctx2.globalAlpha = 1; ctx2.strokeStyle = "rgba(255,255,255,.85)"; ctx2.lineWidth = 1;
   const r = viewport.getBoundingClientRect();
-  ctx2.strokeRect(tx(-view.x / view.s), ty(-view.y / view.s), (r.width / view.s) * m.scale, (r.height / view.s) * m.scale);
+  ctx2.globalAlpha = 1; ctx2.lineWidth = 1.25;
+  ctx2.fillStyle = "rgba(167,139,250,.08)"; ctx2.strokeStyle = "rgba(196,181,253,.9)";
+  ctx2.beginPath();
+  rr(tx(-view.x / view.s), ty(-view.y / view.s), (r.width / view.s) * m.scale, (r.height / view.s) * m.scale, 3);
+  ctx2.fill(); ctx2.stroke();
 }
 function minimapJump(e) {
   const r = minimapCanvas.getBoundingClientRect();
@@ -235,9 +242,11 @@ function scheduleRender() {
 // ================= view =================
 function applyView() {
   world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`;
-  const g = GRID * view.s;
-  viewport.style.backgroundSize = `${g}px ${g}px`;
-  viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
+  // Duas camadas: pontos a cada célula e marcas maiores a cada 5 (some no zoom baixo).
+  const g = GRID * view.s, G = g * 5;
+  viewport.style.backgroundSize = `${g}px ${g}px, ${G}px ${G}px`;
+  viewport.style.backgroundPosition = `${view.x}px ${view.y}px, ${view.x}px ${view.y}px`;
+  viewport.style.setProperty("--dot-a", Math.min(1, Math.max(0, (view.s - 0.3) / 0.5)).toFixed(2));
   zoomBtn.textContent = Math.round(view.s * 100) + "%";
   scheduleRender(); updateStatus();
 }
@@ -362,6 +371,7 @@ function updateStatus() {
   parts.push(`${live} conectados`);
   if (!connectSource) $("#statusText").textContent = parts.join(" · ");
   $(".led").dataset.s = live === terms.length ? "ok" : live ? "warn" : "down";
+  document.body.classList.toggle("empty", !all.length);
 }
 
 // ================= nós =================
