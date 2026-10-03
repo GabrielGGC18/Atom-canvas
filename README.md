@@ -11,7 +11,7 @@ Canvas infinito local com **terminais reais**, notas e janelas de Markdown, imag
 - Fechar janela com **Desfazer** (o shell só é encerrado após alguns segundos — sem processos órfãos)
 - Canvas infinito: pan, zoom, ajustar tudo, encaixe na grade, minimap
 - Janelas: mover, redimensionar, minimizar, maximizar, tela cheia, duplicar, cor por janela, renomear
-- Notas, preview de Markdown, imagem e navegador (iframe)
+- Notas, preview de Markdown, imagem e navegador (iframe). Sites que proíbem ser embutidos (`X-Frame-Options` / CSP `frame-ancestors`) mostram um aviso com "Abrir no navegador" — a proteção do site é respeitada, sem proxy
 - Conexões (linhas) entre janelas
 - Botão para rodar `claude` (Claude Code) na pasta do terminal
 - Busca embutida no terminal (`Ctrl+Shift+F`, com contador de resultados) e links clicáveis

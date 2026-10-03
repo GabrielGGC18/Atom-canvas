@@ -376,6 +376,93 @@ async def health(request):
     return web.json_response({"ok": True, "sessions": len(SESSIONS), "shell": os.path.basename(SHELL)})
 
 
+# ---------- sites no preview "Navegador" ----------
+# Só LÊ os cabeçalhos do site para saber se ele aceita ser exibido em iframe.
+# Não há proxy nem remoção de cabeçalho: se o site proíbe, o canvas respeita e
+# oferece abrir no navegador do sistema.
+def _http_url(value):
+    from urllib.parse import urlsplit
+    value = (value or "").strip()
+    try:
+        u = urlsplit(value)
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not u.hostname or len(value) > 4096:
+        return None
+    return value
+
+
+def _frame_source_allows(src, origin):
+    """Uma fonte de frame-ancestors autoriza nossa origem (http://127.0.0.1:PORT)?"""
+    from urllib.parse import urlsplit
+    src = src.strip().lower()
+    if src == "*":
+        return True
+    if src.startswith("'") or not src:
+        return False  # 'none', 'self' (origem do site, não a nossa), nonces...
+    if src.endswith(":"):  # só esquema: "http:" / "https:"
+        return origin.startswith(src)
+    if "://" not in src:
+        src = "http://" + src
+    try:
+        u = urlsplit(src.replace(":*", ":0"))
+        o = urlsplit(origin)
+    except ValueError:
+        return False
+    host = u.hostname or ""
+    if host.startswith("*."):
+        return False  # curinga de subdomínio nunca cobre 127.0.0.1/localhost
+    if host != o.hostname or u.scheme != o.scheme:
+        return False
+    return ":*" in src or (u.port or 80) == o.port
+
+
+def frame_verdict(headers, origin):
+    """(embeddable, motivo). CSP frame-ancestors tem prioridade sobre X-Frame-Options."""
+    for csp in headers.getall("Content-Security-Policy", []):
+        for directive in csp.split(";"):
+            parts = directive.strip().split()
+            if parts and parts[0].lower() == "frame-ancestors":
+                if any(_frame_source_allows(src, origin) for src in parts[1:]):
+                    return True, ""
+                return False, "content-security-policy: frame-ancestors"
+    xfo = (headers.get("X-Frame-Options") or "").strip().upper()
+    if xfo.startswith(("DENY", "SAMEORIGIN", "ALLOW-FROM")):
+        return False, f"x-frame-options: {xfo.split(',')[0].strip()}"
+    return True, ""
+
+
+async def frame_check(request):
+    check_auth(request)
+    url = _http_url(request.query.get("url"))
+    if not url:
+        raise web.HTTPBadRequest(text="url invalida")
+    import aiohttp
+    origin = f"http://{HOST}:{PORT}"
+    timeout = aiohttp.ClientTimeout(total=8)
+    headers = {"User-Agent": "Mozilla/5.0 (ATOM Canvas frame-check)", "Accept": "text/html,*/*"}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as http:
+            # GET (não HEAD): vários servidores só mandam os cabeçalhos de segurança no GET.
+            async with http.get(url, allow_redirects=True, max_redirects=10) as r:
+                ok, reason = frame_verdict(r.headers, origin)
+                return web.json_response({"embeddable": ok, "reason": reason, "status": r.status, "final": str(r.url)})
+    except Exception as e:
+        # Sem resposta (offline, DNS...): deixa o iframe tentar e mostrar o erro dele.
+        return web.json_response({"embeddable": None, "reason": f"sem resposta: {type(e).__name__}"})
+
+
+async def open_external(request):
+    """Abre a URL no navegador padrão do sistema (servidor é local = mesma máquina)."""
+    check_auth(request)
+    url = _http_url(request.query.get("url"))
+    if not url:
+        raise web.HTTPBadRequest(text="url invalida")
+    import webbrowser
+    ok = await asyncio.get_running_loop().run_in_executor(None, webbrowser.open, url)
+    return web.json_response({"ok": bool(ok)})
+
+
 async def index(request):
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
@@ -524,6 +611,8 @@ def create_app():
     app.router.add_get("/api/workspaces", list_workspaces)
     app.router.add_delete("/api/workspaces", delete_workspace)
     app.router.add_get("/api/health", health)
+    app.router.add_get("/api/frame-check", frame_check)
+    app.router.add_post("/api/open-external", open_external)
     app.router.add_static("/static", STATIC)
     app.on_startup.append(_write_instance)
     app.on_shutdown.append(_kill_sessions)

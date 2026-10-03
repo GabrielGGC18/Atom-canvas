@@ -238,6 +238,18 @@ body.empty #empty { display: grid; }
   background: repeating-conic-gradient(#0e0f15 0 25%, #12131a 0 50%) 0 0 / 20px 20px; }
 .browser-preview { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .preview-error { margin: auto; color: var(--muted); }
+.frame-wait { margin: auto; color: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
+.frame-blocked { flex: 1; display: grid; place-items: center; padding: 18px; overflow: auto;
+  background: radial-gradient(ellipse at 50% 30%, rgba(124,92,255,.10), transparent 65%), #0d0f15; }
+.fb-card { max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.fb-card b { font-size: 14px; }
+.fb-card small { color: var(--muted); line-height: 1.5; }
+.fb-card code { font: 11px var(--mono); color: var(--warn); background: rgba(250,204,21,.08); border: 1px solid rgba(250,204,21,.2); padding: 2px 8px; border-radius: 6px; }
+.fb-card code:empty { display: none; }
+.fb-ico { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: var(--accent2);
+  background: rgba(34,211,238,.10); border: 1px solid rgba(34,211,238,.25); margin-bottom: 4px; }
+.fb-ico svg { width: 22px; height: 22px; }
+.fb-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
 .node.min { height: 38px !important; }
 .node.min header { border-bottom: 0; }
 .node.min .body, .node.min .rz { display: none; }

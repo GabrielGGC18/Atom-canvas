@@ -194,6 +194,45 @@ async function waitFor(fn, ms = 15000, msg = "timeout") {
     assert((await page.$$(".node.preview")).length === 0);
   });
 
+  await step("site que proíbe iframe: aviso + abrir no navegador (sem contornar)", async () => {
+    // Site local de teste: /deny manda X-Frame-Options: DENY, /ok permite.
+    const http = require("http");
+    const site = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/html", ...(req.url === "/deny" ? { "X-Frame-Options": "DENY" } : {}) });
+      res.end("<h1 id=ok>pagina ok</h1>");
+    });
+    await new Promise((r) => site.listen(8798, "127.0.0.1", r));
+    const opened = [];
+    await page.route("**/api/open-external?**", (route) => {
+      opened.push(new URL(route.request().url()).searchParams.get("url"));
+      route.fulfill({ contentType: "application/json", body: '{"ok": true}' });
+    });
+    try {
+      for (const path of ["/deny", "/ok"]) {
+        await page.click("#resourceBtn");
+        await page.click("[data-resource=browser]");
+        await page.fill("#dialog input", `http://127.0.0.1:8798${path}`);
+        await page.keyboard.press("Enter");
+      }
+      await page.waitForSelector(".node.preview .frame-blocked");
+      const blocked = await page.$$(".node.preview .frame-blocked");
+      assert(blocked.length === 1, `painéis de bloqueio: ${blocked.length}`);
+      assert((await page.textContent(".frame-blocked code")).includes("DENY"));
+      await page.waitForSelector(".node.preview iframe.browser-preview");
+      const frame = page.frames().find((f) => f.url().endsWith(":8798/ok"));
+      assert(frame && (await frame.textContent("#ok")) === "pagina ok", "site permitido não carregou no iframe");
+      await page.$eval(".frame-blocked [data-f=open]", (b) => b.click());
+      await waitFor(() => opened.length === 1, 5000, "não pediu para abrir fora");
+      assert(opened[0] === "http://127.0.0.1:8798/deny", opened[0]);
+      // limpa: fecha os dois previews
+      await page.$$eval(".node.preview [data-a=close]", (bs) => bs.forEach((b) => b.click()));
+      await page.waitForSelector(".node.preview", { state: "detached" });
+    } finally {
+      await page.unroute("**/api/open-external?**");
+      site.close();
+    }
+  });
+
   await step("renomear pelo título", async () => {
     await page.dblclick(".node.note .title");
     await page.keyboard.type("Ideias");

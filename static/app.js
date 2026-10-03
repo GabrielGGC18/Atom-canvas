@@ -42,6 +42,8 @@ const P = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  external: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9.5 12.5l2 2 3.5-4"/>',
   reload: '<path d="M4 4v6h6"/><path d="M20 20v-6h-6"/><path d="M5.5 15a7 7 0 0 0 12.4 2M18.5 9A7 7 0 0 0 6.1 7"/>',
 };
 const ico = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
@@ -409,7 +411,8 @@ function addNode(d) {
         <button data-a="claude" title="Abrir Claude Code aqui" aria-label="Claude Code">${ico("claude")}</button>
         <button data-a="restart" title="Reiniciar shell" aria-label="Reiniciar shell">${ico("restart")}</button>` : ""}
         ${isPreview && kind !== "markdown" ? `<button data-a="url" title="Trocar endereço" aria-label="Trocar endereço">${ico("edit")}</button>
-        <button data-a="reload" title="Recarregar" aria-label="Recarregar">${ico("reload")}</button>` : ""}
+        <button data-a="reload" title="Recarregar" aria-label="Recarregar">${ico("reload")}</button>
+        <button data-a="external" title="Abrir no navegador do sistema" aria-label="Abrir no navegador">${ico("external")}</button>` : ""}
         <button data-a="link" title="Criar conexão" aria-label="Conectar">${ico("link")}</button>
         <button data-a="dup" title="Duplicar" aria-label="Duplicar">${ico("copy")}</button>
         <button data-a="min" title="Minimizar" aria-label="Minimizar">${ico("min")}</button>
@@ -484,7 +487,8 @@ function addNode(d) {
     else if (a === "search") node.openSearch?.();
     else if (a === "link") beginConnection(node);
     else if (a === "url") changeUrl(node);
-    else if (a === "reload") node.render?.();
+    else if (a === "reload") node.render?.(true);
+    else if (a === "external") openExternal(node.data.url);
   });
 
   el.addEventListener("pointerdown", (e) => {
@@ -698,8 +702,9 @@ function markdownToHtml(value) {
 
 function initPreview(node) {
   const body = node.el.querySelector(".body");
-  let target;
-  node.render = () => {
+  let target, renderSeq = 0;
+  node.render = (force = false) => {
+    const seq = ++renderSeq;
     target?.remove();
     if (node.data.mode === "markdown") {
       target = document.createElement("article"); target.className = "markdown-preview";
@@ -708,14 +713,18 @@ function initPreview(node) {
       target = document.createElement("img"); target.className = "image-preview"; target.alt = node.data.title;
       target.onerror = () => { target.replaceWith(Object.assign(document.createElement("div"), { className: "preview-error", textContent: "Não foi possível carregar a imagem." })); };
       target.src = node.data.url;
+    } else if (node.data.url && !isSelfOrigin(node.data.url)) {
+      // Pergunta ao servidor se o site aceita iframe (só lê cabeçalhos).
+      target = document.createElement("div"); target.className = "frame-wait";
+      target.textContent = "Verificando o site…";
+      frameCheck(node.data.url, force).then((r) => {
+        if (seq !== renderSeq || !node.el.isConnected) return;
+        target.remove();
+        target = r.embeddable === false ? blockedPanel(node, r) : makeFrame(node);
+        body.appendChild(target);
+      });
     } else {
-      target = document.createElement("iframe"); target.className = "browser-preview"; target.title = node.data.title;
-      target.sandbox.add("allow-scripts", "allow-forms", "allow-popups");
-      // allow-same-origin só para sites externos: uma página do próprio servidor
-      // com scripts + same-origin poderia ler o token do canvas.
-      if (!isSelfOrigin(node.data.url)) target.sandbox.add("allow-same-origin");
-      target.referrerPolicy = "no-referrer";
-      target.src = node.data.url || "about:blank";
+      target = makeFrame(node);
     }
     body.appendChild(target);
   };
@@ -728,6 +737,59 @@ function initPreview(node) {
   }
   node.render();
 }
+function makeFrame(node) {
+  const f = document.createElement("iframe"); f.className = "browser-preview"; f.title = node.data.title;
+  f.sandbox.add("allow-scripts", "allow-forms", "allow-popups");
+  // allow-same-origin só para sites externos: uma página do próprio servidor
+  // com scripts + same-origin poderia ler o token do canvas.
+  if (!isSelfOrigin(node.data.url)) f.sandbox.add("allow-same-origin");
+  f.referrerPolicy = "no-referrer";
+  f.src = node.data.url || "about:blank";
+  return f;
+}
+
+// Resultado por URL (cache da sessão): evita refazer a checagem a cada redraw.
+const frameCache = new Map();
+async function frameCheck(url, force = false) {
+  if (!force && frameCache.has(url)) return frameCache.get(url);
+  let r;
+  try {
+    const res = await api("/api/frame-check", { url });
+    r = res.ok ? await res.json() : { embeddable: null };
+  } catch { r = { embeddable: null }; }
+  if (r.embeddable !== null) frameCache.set(url, r);
+  return r;
+}
+
+// Site proíbe ser embutido: explica e oferece abrir fora. Nada é contornado.
+function blockedPanel(node, r) {
+  const el = document.createElement("div");
+  el.className = "frame-blocked";
+  el.innerHTML = `<div class="fb-card">
+    <span class="fb-ico">${ico("shield")}</span>
+    <b>Este site não permite ser exibido dentro do canvas</b>
+    <small></small>
+    <code></code>
+    <div class="fb-actions">
+      <button class="tb primary" data-f="open">${ico("external")}Abrir no navegador</button>
+      <button class="tb" data-f="retry">${ico("reload")}Verificar de novo</button>
+    </div></div>`;
+  el.querySelector("small").textContent = `${hostOf(node.data.url)} bloqueia a exibição em outras páginas. É uma proteção do próprio site — o ATOM respeita.`;
+  el.querySelector("code").textContent = r.reason || "";
+  el.querySelector("[data-f=open]").onclick = () => openExternal(node.data.url);
+  el.querySelector("[data-f=retry]").onclick = () => node.render(true);
+  return el;
+}
+
+async function openExternal(url) {
+  if (!url) return;
+  try {
+    const res = await api("/api/open-external", { url }, { method: "POST" });
+    if (res.ok && (await res.json()).ok) return toast("Aberto no navegador do sistema");
+  } catch {}
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 function isSelfOrigin(url) { try { return new URL(url, location.href).origin === location.origin; } catch { return false; } }
 function normalizeUrl(u) {
   u = (u || "").trim();

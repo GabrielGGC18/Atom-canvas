@@ -164,6 +164,46 @@ class ServerTest(AioHTTPTestCase):
         r = await self.client.get(f"/api/health?{T}")
         self.assertTrue((await r.json())["ok"])
 
+    async def test_frame_check_reads_headers_without_proxying(self):
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+
+        site = web.Application()
+        site.router.add_get("/deny", lambda r: web.Response(text="x", headers={"X-Frame-Options": "DENY"}))
+        site.router.add_get("/ok", lambda r: web.Response(text="x"))
+        site.router.add_get("/csp", lambda r: web.Response(text="x", headers={
+            "Content-Security-Policy": "frame-ancestors 'self'", "X-Frame-Options": "ALLOWALL"}))
+        site.router.add_get("/go", lambda r: web.HTTPFound("/deny"))
+        srv = TestServer(site)
+        await srv.start_server()
+        try:
+            base = f"http://127.0.0.1:{srv.port}"
+            for path, expected in (("/deny", False), ("/ok", True), ("/csp", False), ("/go", False)):
+                r = await self.client.get(f"/api/frame-check?{T}&url={base}{path}")
+                self.assertEqual(r.status, 200)
+                self.assertIs((await r.json())["embeddable"], expected, path)
+        finally:
+            await srv.close()
+        r = await self.client.get(f"/api/frame-check?{T}&url=http://127.0.0.1:1/nada")
+        self.assertIsNone((await r.json())["embeddable"])  # offline: deixa o iframe tentar
+        for bad in ("file:///etc/passwd", "javascript:alert(1)", "", "nada"):
+            r = await self.client.get(f"/api/frame-check?{T}&url={bad}")
+            self.assertEqual(r.status, 400, bad)
+        r = await self.client.get("/api/frame-check?url=https://example.com")
+        self.assertEqual(r.status, 403)
+
+    async def test_open_external_only_http(self):
+        from unittest import mock
+        with mock.patch("webbrowser.open", return_value=True) as wb:
+            r = await self.client.post(f"/api/open-external?{T}&url=https://www.midia63.com.br")
+            self.assertTrue((await r.json())["ok"])
+            wb.assert_called_once_with("https://www.midia63.com.br")
+            r = await self.client.post(f"/api/open-external?{T}&url=file:///C:/Windows/system.ini")
+            self.assertEqual(r.status, 400)
+            r = await self.client.post("/api/open-external?url=https://x.com")
+            self.assertEqual(r.status, 403)
+            self.assertEqual(wb.call_count, 1)
+
     async def test_instance_file_written_and_running_detected(self):
         # on_startup grava o arquivo de instância
         self.assertTrue(server.INSTANCE.exists())
@@ -190,6 +230,24 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(server._int("abc", 7, 2, 10), 7)
         self.assertEqual(server._int("999", 7, 2, 10), 10)
         self.assertEqual(server._int(-3, 7, 2, 10), 2)
+
+    def test_frame_verdict_rules(self):
+        from multidict import CIMultiDict as H
+        o = "http://127.0.0.1:8765"
+        cases = [
+            ({"X-Frame-Options": "DENY"}, False),
+            ({"X-Frame-Options": "sameorigin"}, False),
+            ({}, True),
+            ({"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'"}, False),
+            ({"Content-Security-Policy": "frame-ancestors *"}, True),
+            # frame-ancestors tem prioridade sobre X-Frame-Options
+            ({"Content-Security-Policy": "frame-ancestors 'self' http://127.0.0.1:*", "X-Frame-Options": "DENY"}, True),
+            ({"Content-Security-Policy": "frame-ancestors http://127.0.0.1:8765"}, True),
+            ({"Content-Security-Policy": "frame-ancestors http://127.0.0.1:9999"}, False),
+            ({"Content-Security-Policy": "frame-ancestors https://*.example.com"}, False),
+        ]
+        for headers, expected in cases:
+            self.assertIs(server.frame_verdict(H(headers), o)[0], expected, headers)
 
     def test_find_running_ignores_missing_garbage_and_dead(self):
         server.INSTANCE.unlink(missing_ok=True)
