@@ -57,7 +57,7 @@ O shell aberto é o `$SHELL` do usuário (fallback: `bash` → `zsh` → `/bin/s
 
 ### Windows
 
-Duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview). Na primeira execução ele cria `.venv` e instala as dependências sozinho; se algo der errado, a janela fica aberta mostrando o erro. Se a porta 8765 já estiver em uso (outra instância aberta), feche-a ou rode `set ATOM_CANVAS_PORT=8766` antes. Manual:
+Duplo clique em `iniciar.bat` (navegador) ou `iniciar-desktop.bat` (janela desktop via pywebview). Na primeira execução ele cria `.venv` e instala as dependências sozinho — o Python é encontrado mesmo fora do PATH (Python Launcher ou pastas padrão do instalador); se algo der errado, a janela fica aberta mostrando o erro. Manual:
 
 ```powershell
 py -3 -m venv .venv
@@ -69,6 +69,8 @@ python server.py --open
 ### Acesso
 
 O servidor imprime `http://127.0.0.1:8765/?token=...` e abre o navegador (`--open`). O token muda a cada execução. `Ctrl+C` para o servidor e encerra todos os shells.
+
+**Uma instância por pasta de dados:** o servidor ativo grava `.atom-canvas.json` (porta + token, ignorado no git). Abrir de novo — pelo navegador ou pelo modo desktop — reaproveita a instância que já está rodando em vez de subir outra que disputaria a porta e o mesmo `layout.json`. Se a porta 8765 estiver ocupada por outro programa, o ATOM usa a próxima livre (a menos que `ATOM_CANVAS_PORT` tenha sido definida).
 
 ### Variáveis de ambiente
 

@@ -24,6 +24,11 @@ STATIC = BASE / "static"
 DATA = Path(os.environ.get("ATOM_CANVAS_DATA") or BASE)
 LAYOUT = DATA / "layout.json"
 WORKSPACES = DATA / "workspaces"
+# Arquivo de instância: porta + token da instância viva que usa esta pasta de
+# dados. Um segundo launch (navegador ou desktop) reaproveita essa instância em
+# vez de subir outra que brigaria pela porta e pelo mesmo layout.json.
+INSTANCE = DATA / ".atom-canvas.json"
+PORT_FIXED = bool(os.environ.get("ATOM_CANVAS_PORT"))
 HOST, PORT = "127.0.0.1", int(os.environ.get("ATOM_CANVAS_PORT", 8765))
 TOKEN = os.environ.get("ATOM_CANVAS_TOKEN") or secrets.token_urlsafe(16)
 MAX_TERMINALS = int(os.environ.get("ATOM_MAX_TERMINALS", 128))
@@ -414,16 +419,86 @@ def wait_listening(alive=lambda: True, timeout=15.0):
     return False
 
 
+def url_for(port=None, token=None):
+    return f"http://{HOST}:{port or PORT}/?token={token or TOKEN}"
+
+
+def find_running():
+    """URL da instância viva que usa esta pasta de dados, ou None.
+
+    Confirma com /api/health + token: arquivo velho (processo morto, porta
+    reutilizada por outro programa) é ignorado e apagado.
+    """
+    import urllib.request
+    try:
+        info = json.loads(INSTANCE.read_text("utf-8"))
+        port, token = int(info["port"]), str(info["token"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    try:
+        with urllib.request.urlopen(f"http://{HOST}:{port}/api/health?token={token}", timeout=1.5) as r:
+            if r.status == 200 and json.loads(r.read()).get("ok"):
+                return url_for(port, token)
+    except Exception:
+        pass
+    try:
+        INSTANCE.unlink()
+    except OSError:
+        pass
+    return None
+
+
+def choose_port():
+    """Porta a usar: a pedida ou, se outro programa a ocupa (e ATOM_CANVAS_PORT
+    não foi fixada), a próxima livre. None = nenhuma disponível."""
+    global PORT
+    if port_free(port=PORT):
+        return PORT
+    if PORT_FIXED:
+        return None
+    for cand in range(PORT + 1, PORT + 20):
+        if port_free(port=cand):
+            PORT = cand
+            return PORT
+    return None
+
+
+async def _write_instance(app):
+    try:
+        _atomic_write(INSTANCE, json.dumps({"pid": os.getpid(), "port": PORT, "token": TOKEN}))
+        if os.name != "nt":
+            os.chmod(INSTANCE, 0o600)  # contém o token: só o dono lê
+    except OSError as e:
+        print(f"  [aviso] não gravou {INSTANCE.name}: {e}", file=sys.stderr)
+
+
+async def _remove_instance(app):
+    try:
+        if json.loads(INSTANCE.read_text("utf-8")).get("pid") == os.getpid():
+            INSTANCE.unlink()
+    except (OSError, ValueError):
+        pass
+
+
 def main():
-    if not port_free():
-        # Antes o navegador abria com o TOKEN novo apontando para a instância
-        # antiga (outro token) -> "Token inválido" e o canvas não carregava.
+    running = find_running()
+    if running:
+        # Já existe instância nesta pasta: abre ela em vez de subir outra.
+        print(f"\n  ATOM Canvas já está rodando -> {running}\n", flush=True)
+        if "--open" in sys.argv:
+            import webbrowser
+            webbrowser.open(running)
+        return
+    requested = PORT
+    if choose_port() is None:
         sys.exit(
-            f"\n  Porta {PORT} ocupada (outra instância do ATOM Canvas já está aberta?).\n"
-            f"  Feche a janela dela ou use outra porta: set ATOM_CANVAS_PORT=8766\n"
+            f"\n  Porta {requested} ocupada por outro programa.\n"
+            f"  Feche-o ou use outra porta: set ATOM_CANVAS_PORT=8766\n"
         )
+    if PORT != requested:
+        print(f"  [aviso] porta {requested} ocupada; usando {PORT}.", flush=True)
     app = create_app()
-    url = f"http://{HOST}:{PORT}/?token={TOKEN}"
+    url = url_for()
     print(f"\n  ATOM Canvas -> {url}\n  (Ctrl+C para encerrar)\n", flush=True)
     if "--open" in sys.argv:
         # Abre o navegador só quando o servidor já escuta (antes abria cedo
@@ -450,7 +525,9 @@ def create_app():
     app.router.add_delete("/api/workspaces", delete_workspace)
     app.router.add_get("/api/health", health)
     app.router.add_static("/static", STATIC)
+    app.on_startup.append(_write_instance)
     app.on_shutdown.append(_kill_sessions)
+    app.on_cleanup.append(_remove_instance)
     return app
 
 

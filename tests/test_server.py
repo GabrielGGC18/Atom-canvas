@@ -6,6 +6,7 @@ layout.json real do usuário. Os testes de terminal abrem um shell de verdade.
 import asyncio
 import json
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -163,6 +164,21 @@ class ServerTest(AioHTTPTestCase):
         r = await self.client.get(f"/api/health?{T}")
         self.assertTrue((await r.json())["ok"])
 
+    async def test_instance_file_written_and_running_detected(self):
+        # on_startup grava o arquivo de instância
+        self.assertTrue(server.INSTANCE.exists())
+        info = json.loads(server.INSTANCE.read_text("utf-8"))
+        self.assertEqual(info["token"], "test-token")
+        # aponta para a porta real do servidor de teste e confirma detecção
+        server.INSTANCE.write_text(json.dumps({"pid": 1, "port": self.client.port, "token": "test-token"}), "utf-8")
+        url = await asyncio.get_running_loop().run_in_executor(None, server.find_running)
+        self.assertEqual(url, f"http://127.0.0.1:{self.client.port}/?token=test-token")
+        # token errado = instância de outra pessoa/velha: ignorada e apagada
+        server.INSTANCE.write_text(json.dumps({"pid": 1, "port": self.client.port, "token": "outro"}), "utf-8")
+        url = await asyncio.get_running_loop().run_in_executor(None, server.find_running)
+        self.assertIsNone(url)
+        self.assertFalse(server.INSTANCE.exists())
+
 
 class UnitTest(unittest.TestCase):
     def test_remember_caps_buffer(self):
@@ -174,6 +190,35 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(server._int("abc", 7, 2, 10), 7)
         self.assertEqual(server._int("999", 7, 2, 10), 10)
         self.assertEqual(server._int(-3, 7, 2, 10), 2)
+
+    def test_find_running_ignores_missing_garbage_and_dead(self):
+        server.INSTANCE.unlink(missing_ok=True)
+        self.assertIsNone(server.find_running())
+        server.INSTANCE.write_text("lixo", "utf-8")
+        self.assertIsNone(server.find_running())
+        with socket.socket() as s:  # porta sem ninguém escutando
+            s.bind(("127.0.0.1", 0))
+            dead = s.getsockname()[1]
+        server.INSTANCE.write_text(json.dumps({"pid": 1, "port": dead, "token": "x"}), "utf-8")
+        self.assertIsNone(server.find_running())
+        self.assertFalse(server.INSTANCE.exists())
+
+    def test_choose_port_falls_back_when_busy(self):
+        old_port, old_fixed = server.PORT, server.PORT_FIXED
+        busy = socket.socket()
+        try:
+            busy.bind(("127.0.0.1", 0))
+            busy.listen()
+            server.PORT, server.PORT_FIXED = busy.getsockname()[1], False
+            got = server.choose_port()
+            self.assertIsNotNone(got)
+            self.assertNotEqual(got, busy.getsockname()[1])
+            self.assertEqual(server.PORT, got)
+            server.PORT, server.PORT_FIXED = busy.getsockname()[1], True
+            self.assertIsNone(server.choose_port())  # porta fixada: não troca
+        finally:
+            busy.close()
+            server.PORT, server.PORT_FIXED = old_port, old_fixed
 
 
 if __name__ == "__main__":
